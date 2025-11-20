@@ -1,4 +1,4 @@
-# app_pressure_supply_p&id.py
+# pressure_supply_p&id.py
 import streamlit as st
 from PIL import Image, ImageDraw
 import json
