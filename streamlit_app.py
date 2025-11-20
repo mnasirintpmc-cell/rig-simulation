@@ -29,9 +29,9 @@ def get_system_files(system_name):
             "png": "assets/p&id_mixing.png"
         },
         "supply": {
-            "valves": "data/valves_pressure_in.json",      # Your actual file
-            "pipes": "data/pipes_pressure_in.json",        # Your actual file
-            "png": "assets/p&id_pressure_in.png"           # Your actual file
+            "valves": "data/valves_pressure_in.json",
+            "pipes": "data/pipes_pressure_in.json",
+            "png": "assets/p&id_pressure_in.png"
         },
         "dgs": {
             "valves": "data/valves_dgs.json",
@@ -45,7 +45,7 @@ def get_system_files(system_name):
         },
         "seal": {
             "valves": "data/valves_separtaion_seal.json",  # Your actual spelling
-            "pipes": "data/pipes_separtaion_seal.json",    # Your actual spelling
+            "pipes": "data/pipes_separation_seal.json",    # Correct spelling for pipes
             "png": "assets/p&id_separtaion_seal.png"       # Your actual spelling
         }
     }
