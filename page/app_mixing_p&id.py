@@ -1,76 +1,143 @@
 import streamlit as st
-import pandas as pd
-import plotly.graph_objects as go
-import numpy as np
+from PIL import Image, ImageDraw
+import json
+import math
 
-def main():
-    st.set_page_config(
-        page_title="Mixing P&ID",
-        page_icon="⚗️",
-        layout="wide"
+st.set_page_config(layout="wide")
+
+# SYSTEM-SPECIFIC CONFIG
+SYSTEM_NAME = "Mixing Area"
+PID_FILE = "P&ID_Mixing.png"
+VALVES_FILE = "valves_mixing.json"
+PIPES_FILE = "pipes_mixing.json"
+PRESSURE_SOURCES = [1, 5]  # Mixing system pressure inputs
+
+# ===================== LOAD DATA =====================
+def load_valves():
+    try:
+        with open(VALVES_FILE) as f:
+            return json.load(f)
+    except:
+        return {}
+def load_pipes():
+    try:
+        with open(PIPES_FILE) as f:
+            return json.load(f)
+    except:
+        return []
+
+valves = load_valves()
+pipes = load_pipes()
+
+# ===================== SESSION STATE =====================
+if "valve_states" not in st.session_state:
+    st.session_state.valve_states = {tag: False for tag in valves}
+if "selected_pipe" not in st.session_state:
+    st.session_state.selected_pipe = None
+if "pipes_data" not in st.session_state:
+    st.session_state.pipes_data = {SYSTEM_NAME: pipes}
+
+# Use global pipes for this system
+st.session_state.pipes_data.setdefault(SYSTEM_NAME, pipes)
+pipes = st.session_state.pipes_data[SYSTEM_NAME]
+
+# ===================== GROUPS & HARD-CODED =====================
+def get_groups():
+    return {
+        1: [20],           # Primary mixer feed
+        2: [3, 4, 14, 21, 22],  # Mixer circulation
+        5: [6, 7, 8, 9, 18],    # Additive lines
+        11: [10, 19],      # Output lines
+        12: [],            # Standby
+        13: [14, 4, 21, 22],    # Bypass
+        17: [16, 15, 8],   # Recirculation
+        22: [3, 4, 14, 21] # Final mix
+    }
+
+hardcoded = {"V-301": 2, "V-302": 13, "V-103": 5, "V-104": 22, "V-501": 12}
+
+def get_active_leaders():
+    active = set()
+    for v, p in hardcoded.items():
+        if st.session_state.valve_states.get(v, False):
+            active.add(p - 1)
+    # Proximity fallback
+    for i, pipe in enumerate(pipes):
+        for tag, v in valves.items():
+            if st.session_state.valve_states.get(tag, False):
+                d = math.hypot(v["x"] - pipe["x1"], v["y"] - pipe["y1"])
+                if d <= 50:
+                    active.add(i)
+                    break
+    return active
+
+# ===================== COLOR LOGIC WITH PRESSURE =====================
+def get_pipe_color(i):
+    if i == st.session_state.selected_pipe:
+        return (148, 0, 211)
+    num = i + 1
+    active = get_active_leaders()
+    has_flow = i in active or any(num in f and (l-1) in active for l, f in get_groups().items())
+    has_pressure = num in PRESSURE_SOURCES or any(
+        (l-1) in active and l in PRESSURE_SOURCES for l in get_groups()
     )
-    
-    st.title("Mixing System P&ID Dashboard")
-    st.markdown("## Fluid Mixing and Blending Control")
-    
-    # Sidebar for controls
-    with st.sidebar:
-        st.header("Mixing Controls")
-        mix_ratio_a = st.slider("Fluid A Ratio (%)", 0, 100, 60)
-        mix_ratio_b = st.slider("Fluid B Ratio (%)", 0, 100, 40)
-        mixing_speed = st.slider("Mixing Speed (RPM)", 0, 1000, 500)
-        st.button("Start Mixing", type="primary")
-        st.button("Stop Mixing", type="secondary")
-    
-    # Main content area
-    col1, col2 = st.columns([2, 1])
-    
-    with col1:
-        st.subheader("Mixing P&ID Diagram")
-        # Placeholder for P&ID diagram
-        st.image("https://via.placeholder.com/600x400/F59E0B/FFFFFF?text=Mixing+P%26ID", 
-                use_column_width=True)
-        
-        # Real-time data display
-        st.subheader("Mixing Parameters")
-        metric1, metric2, metric3 = st.columns(3)
-        with metric1:
-            st.metric("Mix Temperature", f"{np.random.uniform(22, 28):.1f} °C", "+1.2")
-        with metric2:
-            st.metric("Mix Density", f"{np.random.uniform(0.95, 1.05):.3f} g/mL", "-0.02")
-        with metric3:
-            st.metric("Mix Quality", f"{np.random.uniform(85, 95):.1f} %", "+2.5")
-    
-    with col2:
-        st.subheader("Mixing System Status")
-        status_col1, status_col2 = st.columns(2)
-        
-        with status_col1:
-            st.success("Mixer: Running")
-            st.warning("Fluid A: 60%")
-            st.info("Fluid B: 40%")
-            
-        with status_col2:
-            st.error("Contamination: 0%")
-            st.success("Homogeneity: 92%")
-            st.warning("Viscosity: Normal")
-        
-        # Mixing quality trend
-        st.subheader("Mixing Quality Trend")
-        time = np.arange(0, 24, 0.1)
-        quality = 90 + 3 * np.sin(time * 0.3)
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(x=time, y=quality, mode='lines', name='Mixing Quality'))
-        fig.update_layout(height=200, margin=dict(l=0, r=0, t=0, b=0))
-        st.plotly_chart(fig, use_container_width=True)
-        
-        # Ratio display
-        st.subheader("Current Ratios")
-        ratios = pd.DataFrame({
-            'Fluid': ['Fluid A', 'Fluid B'],
-            'Ratio': [mix_ratio_a, mix_ratio_b]
-        })
-        st.bar_chart(ratios.set_index('Fluid'))
+    if has_flow and has_pressure:
+        return (0, 255, 0)
+    elif has_pressure:
+        return (100, 200, 255)
+    else:
+        return (50, 50, 80)
 
-if __name__ == "__main__":
-    main()
+# ===================== RENDER =====================
+def render():
+    img = Image.open(PID_FILE).convert("RGBA")
+    draw = ImageDraw.Draw(img)
+    for i, pipe in enumerate(pipes):
+        color = get_pipe_color(i)
+        w = 8 if i == st.session_state.selected_pipe else 6
+        draw.line([(pipe["x1"], pipe["y1"]), (pipe["x2"], pipe["y2"])], fill=color, width=w)
+        if i == st.session_state.selected_pipe:
+            draw.ellipse([pipe["x1"]-6, pipe["y1"]-6, pipe["x1"]+6, pipe["y1"]+6], fill=(255,0,0), outline="white")
+            draw.ellipse([pipe["x2"]-6, pipe["y2"]-6, pipe["x2"]+6, pipe["y2"]+6], fill=(255,0,0), outline="white")
+    for tag, d in valves.items():
+        c = (0,255,0) if st.session_state.valve_states.get(tag, False) else (255,0,0)
+        draw.ellipse([d["x"]-10, d["y"]-10, d["x"]+10, d["y"]+10], fill=c, outline="white", width=3)
+        draw.text((d["x"]+15, d["y"]-10), tag, fill="white", stroke_fill="black", stroke_width=2)
+    return img.convert("RGB")
+
+# ===================== UI =====================
+st.title(f"{SYSTEM_NAME} – Live Rig Simulation")
+
+with st.sidebar:
+    st.header("Valve Controls")
+    for tag in valves:
+        s = st.session_state.valve_states.get(tag, False)
+        if st.button(f"{'OPEN' if s else 'CLOSED'} {tag}", key=tag, use_container_width=True):
+            st.session_state.valve_states[tag] = not s
+            st.rerun()
+
+    st.markdown("---")
+    st.header("Pipe Selection")
+    for i in range(len(pipes)):
+        if st.button(f"Pipe {i+1}", key=f"p{i}", use_container_width=True):
+            st.session_state.selected_pipe = i
+            st.rerun()
+    if st.button("Unselect", use_container_width=True):
+        st.session_state.selected_pipe = None
+        st.rerun()
+
+    if st.button("Back to Home"):
+        st.switch_page("home.py")
+
+col1, col2 = st.columns([3,1])
+with col1:
+    st.image(render(), use_container_width=True,
+             caption="Green = Flow | Light Blue = Pressurized | Dark = Empty")
+
+with col2:
+    st.header("Status")
+    flowing = sum(1 for i in range(len(pipes)) if get_pipe_color(i) == (0,255,0))
+    st.write(f"**Flowing:** {flowing}")
+    st.write(f"**Pressurized:** {sum(1 for i in range(len(pipes)) if get_pipe_color(i) in [(0,255,0),(100,200,255)])}")
+
+st.success(f"Live reaction across all 5 P&IDs! Change valve in any system → see effect everywhere.")
