@@ -8,8 +8,8 @@ st.set_page_config(layout="wide", page_title="Rig Simulation")
 # ===================== CONFIG – CHANGE ONLY THESE 3 LINES PER P&ID =====================
 SYSTEM_NAME = "Pressure Supply"                   
 PID_FILE = "P&ID_Pressure_Supply.png"                   
-VALVES_FILE = "valves_pressure_supply.json"             
-PIPES_FILE = "pipes_pressure_supply.json"               
+VALVES_FILE = "valves_pressure_in.json"             
+PIPES_FILE = "pipes_pressure_in.json"               
 PRESSURE_SOURCES = [1, 3, 7]  # Main pumps & headers
 
 # ===================== LOAD DATA =====================
