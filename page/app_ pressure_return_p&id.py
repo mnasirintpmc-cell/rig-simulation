@@ -3,14 +3,14 @@ from PIL import Image, ImageDraw
 import json
 import math
 
-st.set_page_config(layout="wide")
+st.set_page_config(layout="wide", page_title="Rig Simulation")
 
-# SYSTEM-SPECIFIC CONFIG
-SYSTEM_NAME = "Pressure Return"
-PID_FILE = "P&ID_Pressure_Return.png"
-VALVES_FILE = "valves_pressure_return.json"
-PIPES_FILE = "pipes_pressure_return.json"
-PRESSURE_SOURCES = [2, 8]  # Return line pressure points
+# ===================== CONFIG – CHANGE ONLY THESE 3 LINES PER P&ID =====================
+SYSTEM_NAME = "Pressure Return"                   
+PID_FILE = "P&ID_Pressure_Return.png"                   
+VALVES_FILE = "valves_pressure_return.json"             
+PIPES_FILE = "pipes_pressure_return.json"               
+PRESSURE_SOURCES = [2, 8]  # Return headers & backpressure sources
 
 # ===================== LOAD DATA =====================
 def load_valves():
