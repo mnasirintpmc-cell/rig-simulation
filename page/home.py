@@ -6,7 +6,7 @@ st.markdown("### Choose a system to simulate pressurization and see cross-reacti
 
 cols = st.columns(5)
 systems = [
-    ("Mixing P&ID", "app_mixing_p&id.py"),
+    ("Mixing Area", "app_mixing_p&id.py"),
     ("Pressure Supply", "app_pressure_supply_p&id.py"),
     ("DGS Simulation", "app_DGS_SIM.py"),
     ("Pressure Return", "app_pressure_return_p&id.py"),
@@ -20,17 +20,12 @@ for col, (name, file) in zip(cols, systems):
 
 st.success("All 5 systems share the same valves & pipes → Open a valve here → see reaction everywhere!")
 
-# Additional information section
 st.markdown("---")
-st.subheader("System Overview")
+st.subheader("🎯 Dynamic Simulation Features")
 st.markdown("""
-This rig simulation consists of 5 interconnected systems:
-
-- **Mixing P&ID**: Fluid mixing and blending control
-- **Pressure Supply**: Main pressure supply system  
-- **DGS Simulation**: Dynamic Gas System simulation
-- **Pressure Return**: Return line monitoring system
-- **Separation Seal**: Seal system monitoring and control
-
-**Key Feature**: Changes in one system automatically affect all connected systems!
+- **Zero Hard-Coding**: Automatic valve-pipe relationship detection
+- **Universal Template**: Same code works for all P&IDs
+- **Real-time Propagation**: Pressure flows through connected systems
+- **Visual Feedback**: Clear color coding for flow states
+- **Interactive Selection**: Click pipes for inspection
 """)
