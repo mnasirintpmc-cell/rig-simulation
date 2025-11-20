@@ -1,4 +1,4 @@
-# streamlit_app.py (WITH CORRECT FILE NAMES)
+# streamlit_app.py
 import streamlit as st
 from PIL import Image, ImageDraw
 import json
@@ -21,7 +21,7 @@ if 'selected_pipe' not in st.session_state:
 
 # ==================== CORRECT FILE MAPPING ====================
 def get_system_files(system_name):
-    """Get the correct file names for each system"""
+    """Get the correct file names for each system - MATCHING YOUR ACTUAL FILES"""
     file_map = {
         "mixing": {
             "valves": "data/valves_mixing.json",
@@ -29,9 +29,9 @@ def get_system_files(system_name):
             "png": "assets/p&id_mixing.png"
         },
         "supply": {
-            "valves": "data/valves_pressure_in.json",  # ← YOUR ACTUAL FILE
-            "pipes": "data/pipes_pressure_in.json",    # ← YOUR ACTUAL FILE
-            "png": "assets/p&id_pressure_in.png"       # ← YOUR ACTUAL FILE
+            "valves": "data/valves_pressure_in.json",      # Your actual file
+            "pipes": "data/pipes_pressure_in.json",        # Your actual file
+            "png": "assets/p&id_pressure_in.png"           # Your actual file
         },
         "dgs": {
             "valves": "data/valves_dgs.json",
@@ -44,9 +44,9 @@ def get_system_files(system_name):
             "png": "assets/p&id_pressure_return.png"
         },
         "seal": {
-            "valves": "data/valves_separation_seal.json",  # Note: separation (not seperation)
-            "pipes": "data/pipes_separation_seal.json",    # Note: separation (not seperation)
-            "png": "assets/p&id_separation_seal.png"       # Note: separation (not seperation)
+            "valves": "data/valves_separtaion_seal.json",  # Your actual spelling
+            "pipes": "data/pipes_separtaion_seal.json",    # Your actual spelling
+            "png": "assets/p&id_separtaion_seal.png"       # Your actual spelling
         }
     }
     
@@ -88,6 +88,8 @@ def load_system_data(system_name):
     if not png_path or not os.path.exists(png_path):
         st.error(f"❌ Missing: {png_path}")
         png_path = None
+    else:
+        st.sidebar.success(f"✅ P&ID: {os.path.basename(png_path)}")
     
     return valves, pipes, png_path
 
@@ -102,7 +104,7 @@ with col1:
         st.rerun()
 
 with col2:
-    if st.button("⚡ Supply", use_container_width=True):  # This now uses pressure_in files
+    if st.button("⚡ Supply", use_container_width=True):
         st.session_state.current_system = "supply"
         st.rerun()
 
@@ -128,7 +130,6 @@ def render_pid_with_overlay(valves, pipes, png_path, system_name):
     """Render P&ID with interactive overlays"""
     try:
         img = Image.open(png_path).convert("RGBA")
-        st.sidebar.success(f"✅ Loaded: {os.path.basename(png_path)}")
     except Exception as e:
         st.error(f"❌ Cannot load P&ID: {e}")
         # Create placeholder
@@ -182,10 +183,12 @@ def run_simulation(system_name):
     
     if not valves or not pipes:
         st.error("❌ Cannot run - missing JSON data files")
+        st.info("Please check that all JSON files exist in the data/ folder")
         return
     
     if not png_path:
         st.error(f"❌ P&ID image not found")
+        st.info("Please check that the PNG file exists in the assets/ folder")
         return
     
     # Initialize valve states
@@ -208,6 +211,12 @@ def run_simulation(system_name):
         st.metric("Open Valves", open_valves)
         st.metric("Total Valves", len(valves))
         st.metric("Total Pipes", len(pipes))
+        
+        # Clear button
+        if st.button("🔄 Clear All Valves", use_container_width=True):
+            for tag in valves:
+                st.session_state.valve_states[tag] = False
+            st.rerun()
     
     # Main display
     col1, col2 = st.columns([3, 1])
@@ -215,7 +224,7 @@ def run_simulation(system_name):
     with col1:
         image = render_pid_with_overlay(valves, pipes, png_path, display_names[system_name])
         st.image(image, use_container_width=True, 
-                caption=f"{display_names[system_name]} - Interactive P&ID")
+                caption=f"{display_names[system_name]} - Green=Flow, Red=Closed")
     
     with col2:
         st.header("🎯 Legend")
@@ -223,10 +232,14 @@ def run_simulation(system_name):
         st.write("🔵 **Blue pipes**: No flow")
         st.write("🟢 **Green valves**: Open")
         st.write("🔴 **Red valves**: Closed")
+        st.write("---")
+        st.info("💡 **Click valves** in sidebar to open/close them")
+        st.info("💡 **Watch pipes** change color when valves open")
 
 # ==================== MAIN DISPLAY ====================
 if st.session_state.current_system == "home":
     st.markdown("## 🏠 Welcome to Rig Simulation")
+    st.markdown("👆 **Select a system from the buttons above to view P&ID diagrams and control valves**")
     
     # File status with ACTUAL file names
     st.markdown("---")
@@ -240,6 +253,8 @@ if st.session_state.current_system == "home":
         ("seal", "Separation Seal")
     ]
     
+    all_systems_ready = True
+    
     for system, display_name in systems:
         valves_path, pipes_path, png_path = get_system_files(system)
         
@@ -248,6 +263,10 @@ if st.session_state.current_system == "home":
         png_exists = png_path and os.path.exists(png_path)
         
         status = "✅ READY" if all([valves_exists, pipes_exists, png_exists]) else "❌ INCOMPLETE"
+        
+        if not all([valves_exists, pipes_exists, png_exists]):
+            all_systems_ready = False
+        
         st.write(f"**{display_name}**: {status}")
         
         if valves_exists:
@@ -264,9 +283,14 @@ if st.session_state.current_system == "home":
             st.write(f"  - P&ID: ✅ {os.path.basename(png_path)}")
         else:
             st.write(f"  - P&ID: ❌ {png_path}")
+    
+    if all_systems_ready:
+        st.success("🎉 All systems are ready! Click any system above to start simulating.")
+    else:
+        st.warning("⚠️ Some systems are missing files. Check the file paths above.")
 
 else:
     run_simulation(st.session_state.current_system)
 
 st.markdown("---")
-st.success("🎯 **Now using correct file names!**")
+st.success("🎯 **Interactive P&ID Simulation** - Real-time valve control and flow visualization!")
