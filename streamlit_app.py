@@ -44,9 +44,9 @@ def get_system_files(system_name):
             "png": "assets/p&id_pressure_return.png"
         },
         "seal": {
-            "valves": "data/valves_separtaion_seal.json",  # Your actual spelling
-            "pipes": "data/pipes_separation_seal.json",    # Correct spelling for pipes
-            "png": "assets/p&id_separtaion_seal.png"       # Your actual spelling
+            "valves": "data/valves_separatoin_seal.json",  # Your actual spelling: "separatoin"
+            "pipes": "data/pipes_separation_seal.json",    # Correct spelling: "separation"
+            "png": "assets/p&id_separation_seal.png"       # Correct spelling: "separation"
         }
     }
     
