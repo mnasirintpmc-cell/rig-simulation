@@ -7,10 +7,10 @@ st.markdown("### Choose a system to simulate pressurization and see cross-reacti
 cols = st.columns(5)
 systems = [
     ("Mixing Area", "app_mixing_p&id.py"),
-    ("Pressure Supply", "app_pressure_supply_p&id.py"),
+    ("Pressure Supply", "app_pressure_supply_p&id.py"), 
     ("DGS Simulation", "app_DGS_SIM.py"),
     ("Pressure Return", "app_pressure_return_p&id.py"),
-    ("Separation Seal", "app_seperation_seal_p&id.py")
+    ("Separation Seal", "app_separation_seal_p&id.py")  # Fixed spelling
 ]
 
 for col, (name, file) in zip(cols, systems):
