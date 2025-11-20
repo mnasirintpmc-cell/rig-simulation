@@ -7,10 +7,10 @@ st.set_page_config(layout="wide", page_title="Rig Simulation")
 
 # ===================== CONFIG – CHANGE ONLY THESE 3 LINES PER P&ID =====================
 SYSTEM_NAME = "DGS Simulation"                   
-PID_FILE = "P&ID_DGS.png"                   
+PID_FILE = "p&id_dgs.png"                   
 VALVES_FILE = "valves_dgs.json"             
 PIPES_FILE = "pipes_dgs.json"               
-PRESSURE_SOURCES = [1, 6, 11]  # Gas supplies & simulation sources
+PRESSURE_SOURCES = [1, 6, 11]
 
 # ===================== LOAD DATA =====================
 def load_json(file):
