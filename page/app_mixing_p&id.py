@@ -7,11 +7,10 @@ st.set_page_config(layout="wide", page_title="Rig Simulation")
 
 # ===================== CONFIG – CHANGE ONLY THESE 3 LINES PER P&ID =====================
 SYSTEM_NAME = "Mixing Area"                   
-PID_FILE = "P&ID_Mixing.png"                   
+PID_FILE = "p&id_mixing.png"                   
 VALVES_FILE = "valves_mixing.json"             
 PIPES_FILE = "pipes_mixing.json"               
-PRESSURE_SOURCES = [1, 5]  # Mixer feeds & additive inputs
-
+PRESSURE_SOURCES = [1, 5]
 # ===================== LOAD DATA =====================
 def load_valves():
     try:
