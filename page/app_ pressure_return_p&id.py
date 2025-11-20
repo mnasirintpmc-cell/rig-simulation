@@ -7,10 +7,10 @@ st.set_page_config(layout="wide", page_title="Rig Simulation")
 
 # ===================== CONFIG – CHANGE ONLY THESE 3 LINES PER P&ID =====================
 SYSTEM_NAME = "Pressure Return"                   
-PID_FILE = "P&ID_Pressure_Return.png"                   
+PID_FILE = "p&id_pressure_return.png"                   
 VALVES_FILE = "valves_pressure_return.json"             
 PIPES_FILE = "pipes_pressure_return.json"               
-PRESSURE_SOURCES = [2, 8]  # Return headers & backpressure sources
+PRESSURE_SOURCES = [2, 8]
 
 # ===================== LOAD DATA =====================
 def load_valves():
