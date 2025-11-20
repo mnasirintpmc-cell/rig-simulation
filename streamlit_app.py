@@ -1,3 +1,4 @@
+# streamlit_app.py (WITH CORRECT FILE NAMES)
 import streamlit as st
 from PIL import Image, ImageDraw
 import json
@@ -18,38 +19,74 @@ if 'valve_states' not in st.session_state:
 if 'selected_pipe' not in st.session_state:
     st.session_state.selected_pipe = None
 
-# ==================== SIMPLE FILE PATHS ====================
+# ==================== CORRECT FILE MAPPING ====================
+def get_system_files(system_name):
+    """Get the correct file names for each system"""
+    file_map = {
+        "mixing": {
+            "valves": "data/valves_mixing.json",
+            "pipes": "data/pipes_mixing.json", 
+            "png": "assets/p&id_mixing.png"
+        },
+        "supply": {
+            "valves": "data/valves_pressure_in.json",  # ← YOUR ACTUAL FILE
+            "pipes": "data/pipes_pressure_in.json",    # ← YOUR ACTUAL FILE
+            "png": "assets/p&id_pressure_in.png"       # ← YOUR ACTUAL FILE
+        },
+        "dgs": {
+            "valves": "data/valves_dgs.json",
+            "pipes": "data/pipes_dgs.json",
+            "png": "assets/p&id_dgs.png"
+        },
+        "return": {
+            "valves": "data/valves_pressure_return.json",
+            "pipes": "data/pipes_pressure_return.json",
+            "png": "assets/p&id_pressure_return.png"
+        },
+        "seal": {
+            "valves": "data/valves_separation_seal.json",  # Note: separation (not seperation)
+            "pipes": "data/pipes_separation_seal.json",    # Note: separation (not seperation)
+            "png": "assets/p&id_separation_seal.png"       # Note: separation (not seperation)
+        }
+    }
+    
+    if system_name not in file_map:
+        return None, None, None
+    
+    config = file_map[system_name]
+    return config["valves"], config["pipes"], config["png"]
+
 def load_system_data(system_name):
-    """Simple file loading - all files follow same pattern"""
-    valves_path = f"data/valves_{system_name}.json"
-    pipes_path = f"data/pipes_{system_name}.json"
-    png_path = f"assets/p&id_{system_name}.png"
+    """Load data using correct file names"""
+    valves_path, pipes_path, png_path = get_system_files(system_name)
     
     # Load valves
     valves = {}
-    if os.path.exists(valves_path):
+    if valves_path and os.path.exists(valves_path):
         try:
             with open(valves_path, 'r') as f:
                 valves = json.load(f)
-        except:
-            st.error(f"Error loading {valves_path}")
+            st.sidebar.success(f"✅ Valves: {os.path.basename(valves_path)}")
+        except Exception as e:
+            st.error(f"❌ Error loading valves: {e}")
     else:
-        st.error(f"Missing: {valves_path}")
+        st.error(f"❌ Missing: {valves_path}")
     
     # Load pipes
     pipes = []
-    if os.path.exists(pipes_path):
+    if pipes_path and os.path.exists(pipes_path):
         try:
             with open(pipes_path, 'r') as f:
                 pipes = json.load(f)
-        except:
-            st.error(f"Error loading {pipes_path}")
+            st.sidebar.success(f"✅ Pipes: {os.path.basename(pipes_path)}")
+        except Exception as e:
+            st.error(f"❌ Error loading pipes: {e}")
     else:
-        st.error(f"Missing: {pipes_path}")
+        st.error(f"❌ Missing: {pipes_path}")
     
     # Check PNG
-    if not os.path.exists(png_path):
-        st.error(f"Missing: {png_path}")
+    if not png_path or not os.path.exists(png_path):
+        st.error(f"❌ Missing: {png_path}")
         png_path = None
     
     return valves, pipes, png_path
@@ -65,7 +102,7 @@ with col1:
         st.rerun()
 
 with col2:
-    if st.button("⚡ Supply", use_container_width=True):
+    if st.button("⚡ Supply", use_container_width=True):  # This now uses pressure_in files
         st.session_state.current_system = "supply"
         st.rerun()
 
@@ -91,11 +128,14 @@ def render_pid_with_overlay(valves, pipes, png_path, system_name):
     """Render P&ID with interactive overlays"""
     try:
         img = Image.open(png_path).convert("RGBA")
-    except:
-        # Create placeholder if PNG missing
+        st.sidebar.success(f"✅ Loaded: {os.path.basename(png_path)}")
+    except Exception as e:
+        st.error(f"❌ Cannot load P&ID: {e}")
+        # Create placeholder
         img = Image.new('RGBA', (800, 600), (40, 40, 60))
         draw = ImageDraw.Draw(img)
-        draw.text((50, 50), f"{system_name} - P&ID Placeholder", fill="white")
+        draw.text((50, 50), f"P&ID Not Found", fill="white")
+        draw.text((50, 80), f"Path: {png_path}", fill="yellow")
         return img.convert("RGB")
     
     draw = ImageDraw.Draw(img)
@@ -117,7 +157,7 @@ def render_pid_with_overlay(valves, pipes, png_path, system_name):
     # Draw valves
     for tag, valve_data in valves.items():
         is_open = st.session_state.valve_states.get(tag, False)
-        color = (0, 255, 0) if is_open else (255, 0, 0)  # Green=open, Red=closed
+        color = (0, 255, 0) if is_open else (255, 0, 0)
         
         x, y = valve_data["x"], valve_data["y"]
         draw.ellipse([x-10, y-10, x+10, y+10], fill=color, outline="white", width=2)
@@ -141,7 +181,11 @@ def run_simulation(system_name):
     valves, pipes, png_path = load_system_data(system_name)
     
     if not valves or not pipes:
-        st.error("❌ Missing data files - create the JSON files first")
+        st.error("❌ Cannot run - missing JSON data files")
+        return
+    
+    if not png_path:
+        st.error(f"❌ P&ID image not found")
         return
     
     # Initialize valve states
@@ -183,27 +227,46 @@ def run_simulation(system_name):
 # ==================== MAIN DISPLAY ====================
 if st.session_state.current_system == "home":
     st.markdown("## 🏠 Welcome to Rig Simulation")
-    st.markdown("👆 **Select a system to view P&ID and control valves**")
     
-    # File status
+    # File status with ACTUAL file names
     st.markdown("---")
     st.subheader("📁 System Status")
     
-    systems = ["mixing", "supply", "dgs", "return", "seal"]
-    for system in systems:
-        valves_exists = os.path.exists(f"data/valves_{system}.json")
-        pipes_exists = os.path.exists(f"data/pipes_{system}.json")
-        png_exists = os.path.exists(f"assets/p&id_{system}.png")
+    systems = [
+        ("mixing", "Mixing Area"),
+        ("supply", "Pressure Supply"), 
+        ("dgs", "DGS Simulation"),
+        ("return", "Pressure Return"), 
+        ("seal", "Separation Seal")
+    ]
+    
+    for system, display_name in systems:
+        valves_path, pipes_path, png_path = get_system_files(system)
         
-        if valves_exists and pipes_exists and png_exists:
-            st.success(f"✅ {system.title()}: READY")
-        elif valves_exists and pipes_exists:
-            st.warning(f"⚠️ {system.title()}: Data OK, PNG missing")
+        valves_exists = valves_path and os.path.exists(valves_path)
+        pipes_exists = pipes_path and os.path.exists(pipes_path)
+        png_exists = png_path and os.path.exists(png_path)
+        
+        status = "✅ READY" if all([valves_exists, pipes_exists, png_exists]) else "❌ INCOMPLETE"
+        st.write(f"**{display_name}**: {status}")
+        
+        if valves_exists:
+            st.write(f"  - Valves: ✅ {os.path.basename(valves_path)}")
         else:
-            st.error(f"❌ {system.title()}: Missing data files")
+            st.write(f"  - Valves: ❌ {valves_path}")
+            
+        if pipes_exists:
+            st.write(f"  - Pipes: ✅ {os.path.basename(pipes_path)}")
+        else:
+            st.write(f"  - Pipes: ❌ {pipes_path}")
+            
+        if png_exists:
+            st.write(f"  - P&ID: ✅ {os.path.basename(png_path)}")
+        else:
+            st.write(f"  - P&ID: ❌ {png_path}")
 
 else:
     run_simulation(st.session_state.current_system)
 
 st.markdown("---")
-st.success("🎯 **All systems now work! Click valves to see flow changes.**")
+st.success("🎯 **Now using correct file names!**")
