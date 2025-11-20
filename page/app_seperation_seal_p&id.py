@@ -3,14 +3,14 @@ from PIL import Image, ImageDraw
 import json
 import math
 
-st.set_page_config(layout="wide")
+st.set_page_config(layout="wide", page_title="Rig Simulation")
 
-# SYSTEM-SPECIFIC CONFIG
-SYSTEM_NAME = "Separation Seal"
-PID_FILE = "P&ID_Separation_Seal.png"
-VALVES_FILE = "valves_separation_seal.json"
-PIPES_FILE = "pipes_separation_seal.json"
-PRESSURE_SOURCES = [1, 4, 9]  # Seal gas and barrier fluid sources
+# ===================== CONFIG – CHANGE ONLY THESE 3 LINES PER P&ID =====================
+SYSTEM_NAME = "Separation Seal"                   
+PID_FILE = "P&ID_Separation_Seal.png"                   
+VALVES_FILE = "valves_separation_seal.json"             
+PIPES_FILE = "pipes_separation_seal.json"               
+PRESSURE_SOURCES = [1, 4, 9]  # Seal gas & barrier fluid sources
 
 # ===================== LOAD DATA =====================
 def load_valves():
