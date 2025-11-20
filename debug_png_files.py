@@ -2,38 +2,87 @@ import os
 import streamlit as st
 
 st.set_page_config(layout="wide")
-st.title("🔍 PNG File Location Debug")
+st.title("🔍 Compare System Files")
 
-st.subheader("Current Directory:")
-st.write(os.getcwd())
+st.subheader("Checking ALL System Files:")
 
-st.subheader("All Files/Folders:")
-for item in os.listdir("."):
-    st.write(f"- {item}")
+systems = ["mixing", "supply", "return", "seal", "dgs"]
 
-st.subheader("Assets Folder Contents:")
-if os.path.exists("assets"):
-    st.success("✅ assets/ folder exists")
-    for file in os.listdir("assets"):
-        st.write(f"- {file}")
-else:
-    st.error("❌ assets/ folder not found!")
-
-st.subheader("Testing P&ID PNG Files:")
-png_files_to_test = [
-    "p&id_mixing.png",
-    "p&id_pressure_in.png", 
-    "p&id_dgs.png",
-    "p&id_pressure_return.png",
-    "p&id_seperation_seal.png",
-    "assets/p&id_mixing.png",
-    "assets/p&id_pressure_in.png",
-    "assets/p&id_dgs.png", 
-    "assets/p&id_pressure_return.png",
-    "assets/p&id_seperation_seal.png"
-]
-
-for png_file in png_files_to_test:
-    exists = os.path.exists(png_file)
-    status = "✅ EXISTS" if exists else "❌ MISSING"
-    st.write(f"{status}: {png_file}")
+for system in systems:
+    st.markdown(f"### 🔧 {system.upper()} System")
+    
+    # Check valves
+    valves_paths = [
+        f"data/valves_{system}.json",
+        f"data/valves_{system}_p&id.json", 
+        f"valves_{system}.json"
+    ]
+    
+    valves_found = None
+    for path in valves_paths:
+        if os.path.exists(path):
+            valves_found = path
+            break
+    
+    # Check pipes
+    pipes_paths = [
+        f"data/pipes_{system}.json",
+        f"data/pipes_{system}_p&id.json",
+        f"pipes_{system}.json"
+    ]
+    
+    pipes_found = None
+    for path in pipes_paths:
+        if os.path.exists(path):
+            pipes_found = path
+            break
+    
+    # Check PNG
+    png_paths = [
+        f"assets/p&id_{system}.png",
+        f"assets/p&id_{system}_p&id.png",
+        f"assets/{system}.png",
+        f"p&id_{system}.png"
+    ]
+    
+    png_found = None
+    for path in png_paths:
+        if os.path.exists(path):
+            png_found = path
+            break
+    
+    # Display results
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        if valves_found:
+            st.success(f"✅ Valves: {valves_found}")
+        else:
+            st.error("❌ Valves: NOT FOUND")
+    
+    with col2:
+        if pipes_found:
+            st.success(f"✅ Pipes: {pipes_found}")
+        else:
+            st.error("❌ Pipes: NOT FOUND")
+    
+    with col3:
+        if png_found:
+            st.success(f"✅ PNG: {png_found}")
+        else:
+            st.error("❌ PNG: NOT FOUND")
+    
+    # Show file sizes if found
+    if valves_found:
+        size = os.path.getsize(valves_found)
+        st.write(f"Valves file size: {size} bytes")
+    
+    if pipes_found:
+        size = os.path.getsize(pipes_found)
+        st.write(f"Pipes file size: {size} bytes")
+    
+    if png_found:
+        size = os.path.getsize(png_found)
+        st.write(f"PNG file size: {size} bytes")
+    
+    st.markdown("---")
