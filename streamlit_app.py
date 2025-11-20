@@ -18,6 +18,108 @@ if 'valve_states' not in st.session_state:
 if 'selected_pipe' not in st.session_state:
     st.session_state.selected_pipe = None
 
+# ==================== DYNAMIC FILE DISCOVERY ====================
+def find_system_files(system_name):
+    """Dynamically find files for any system"""
+    
+    # Possible file name variations
+    valves_patterns = [
+        f"data/valves_{system_name}.json",
+        f"data/valves_{system_name}_p&id.json",
+        f"valves_{system_name}.json",
+        f"page/valves_{system_name}.json"
+    ]
+    
+    pipes_patterns = [
+        f"data/pipes_{system_name}.json", 
+        f"data/pipes_{system_name}_p&id.json",
+        f"pipes_{system_name}.json",
+        f"page/pipes_{system_name}.json"
+    ]
+    
+    png_patterns = [
+        f"assets/p&id_{system_name}.png",
+        f"assets/{system_name}.png", 
+        f"p&id_{system_name}.png",
+        f"{system_name}.png",
+        f"assets/p&id_{system_name}_p&id.png"
+    ]
+    
+    # Special cases for system name variations
+    if system_name == "supply":
+        png_patterns.extend([
+            "assets/p&id_pressure_in.png",
+            "assets/pressure_in.png"
+        ])
+        valves_patterns.extend([
+            "data/valves_pressure_in.json",
+            "data/valves_pressure_supply.json"
+        ])
+        pipes_patterns.extend([
+            "data/pipes_pressure_in.json", 
+            "data/pipes_pressure_supply.json"
+        ])
+    elif system_name == "seal":
+        png_patterns.extend([
+            "assets/p&id_seperation_seal.png",  # Your spelling
+            "assets/seperation_seal.png"
+        ])
+    
+    # Find files
+    valves_path = None
+    for pattern in valves_patterns:
+        if os.path.exists(pattern):
+            valves_path = pattern
+            break
+    
+    pipes_path = None
+    for pattern in pipes_patterns:
+        if os.path.exists(pattern):
+            pipes_path = pattern
+            break
+    
+    png_path = None
+    for pattern in png_patterns:
+        if os.path.exists(pattern):
+            png_path = pattern
+            break
+    
+    return valves_path, pipes_path, png_path
+
+def load_system_data(system_name):
+    """Load data using discovered file paths"""
+    valves_path, pipes_path, png_path = find_system_files(system_name)
+    
+    # Load valves
+    valves = {}
+    if valves_path:
+        try:
+            with open(valves_path, 'r') as f:
+                valves = json.load(f)
+            st.sidebar.success(f"✅ Valves: {os.path.basename(valves_path)}")
+        except Exception as e:
+            st.error(f"❌ Error loading valves: {e}")
+    else:
+        st.error(f"❌ No valves file found for {system_name}")
+    
+    # Load pipes
+    pipes = []
+    if pipes_path:
+        try:
+            with open(pipes_path, 'r') as f:
+                pipes = json.load(f)
+            st.sidebar.success(f"✅ Pipes: {os.path.basename(pipes_path)}")
+        except Exception as e:
+            st.error(f"❌ Error loading pipes: {e}")
+    else:
+        st.error(f"❌ No pipes file found for {system_name}")
+    
+    # Check PNG
+    if not png_path:
+        st.error(f"❌ No P&ID image found for {system_name}")
+    
+    return valves, pipes, png_path
+
 # ==================== NAVIGATION ====================
 st.title("🏭 Rig Multi-P&ID Simulation")
 
@@ -50,108 +152,34 @@ with col5:
 
 st.markdown("---")
 
-# ==================== SIMULATION ENGINE ====================
-def load_system_data(system_name):
-    """Load data for selected system"""
-    system_map = {
-        "mixing": {
-            "valves": "data/valves_mixing.json", 
-            "pipes": "data/pipes_mixing.json", 
-            "png": "assets/p&id_mixing.png"  # ← Try this path first
-        },
-        "supply": {
-            "valves": "data/valves_pressure_in.json", 
-            "pipes": "data/pipes_pressure_in.json", 
-            "png": "assets/p&id_pressure_in.png"
-        },
-        "dgs": {
-            "valves": "data/valves_dgs.json", 
-            "pipes": "data/pipes_dgs.json", 
-            "png": "assets/p&id_dgs.png"
-        },
-        "return": {
-            "valves": "data/valves_pressure_return.json", 
-            "pipes": "data/pipes_pressure_return.json", 
-            "png": "assets/p&id_pressure_return.png"
-        },
-        "seal": {
-            "valves": "data/valves_seperation_seal.json", 
-            "pipes": "data/pipes_seperation_seal.json", 
-            "png": "assets/p&id_seperation_seal.png"
-        }
-    }
-    
-    if system_name not in system_map:
-        return None, None, None
-    
-    config = system_map[system_name]
-    
-    # Load valves
-    try:
-        with open(config["valves"], 'r') as f:
-            valves = json.load(f)
-    except Exception as e:
-        st.error(f"❌ Cannot load valves: {e}")
-        valves = {}
-    
-    # Load pipes
-    try:
-        with open(config["pipes"], 'r') as f:
-            pipes = json.load(f)
-    except Exception as e:
-        st.error(f"❌ Cannot load pipes: {e}")
-        pipes = []
-    
-    # Find PNG file - try multiple locations
-    png_path = config["png"]
-    if not os.path.exists(png_path):
-        # Try alternative locations
-        alt_paths = [
-            png_path,
-            png_path.replace("assets/", ""),  # Try root directory
-            png_path.replace("p&id_", "P&ID_"),  # Try capital P
-            f"page/{png_path}",  # Try in page folder
-            f"../{png_path}"  # Try one level up
-        ]
-        
-        for alt_path in alt_paths:
-            if os.path.exists(alt_path):
-                png_path = alt_path
-                break
-        else:
-            png_path = None
-    
-    return valves, pipes, png_path
-
+# ==================== RENDERING ====================
 def render_pid_with_overlay(valves, pipes, png_path, system_name):
-    """Render P&ID with valve and pipe overlays"""
+    """Render P&ID with interactive overlays"""
     try:
-        # Load background P&ID
         img = Image.open(png_path).convert("RGBA")
-        st.sidebar.success(f"✅ Loaded P&ID: {os.path.basename(png_path)}")
+        st.sidebar.success(f"✅ P&ID: {os.path.basename(png_path)}")
     except Exception as e:
-        st.error(f"❌ Cannot load P&ID image: {e}")
-        # Create placeholder
+        st.error(f"❌ Cannot load P&ID: {e}")
         img = Image.new('RGBA', (800, 600), (40, 40, 60))
         draw = ImageDraw.Draw(img)
-        draw.text((50, 50), f"P&ID Not Found: {png_path}", fill="white")
+        draw.text((50, 50), f"P&ID Not Found", fill="white")
+        draw.text((50, 80), f"Looking for: {png_path}", fill="yellow")
         return img.convert("RGB")
     
     draw = ImageDraw.Draw(img)
     
-    # Draw pipes with color coding
+    # Draw pipes
     for i, pipe in enumerate(pipes):
-        # Check if pipe has flow (simple logic - if any valve is open)
         has_flow = any(st.session_state.valve_states.get(tag, False) for tag in valves)
         
         if i == st.session_state.selected_pipe:
-            color = (180, 0, 255)  # Purple for selected
+            color = (180, 0, 255)
             width = 8
         elif has_flow:
-            color = (0, 255, 0)  # Green for flow
+            color = (0, 255, 0)
             width = 6
         else:
-            color = (100, 100, 255)  # Blue for no flow
+            color = (100, 100, 255)
             width = 4
             
         draw.line([(pipe["x1"], pipe["y1"]), (pipe["x2"], pipe["y2"])], 
@@ -160,20 +188,16 @@ def render_pid_with_overlay(valves, pipes, png_path, system_name):
     # Draw valves
     for tag, valve_data in valves.items():
         is_open = st.session_state.valve_states.get(tag, False)
-        color = (0, 255, 0) if is_open else (255, 0, 0)  # Green=open, Red=closed
+        color = (0, 255, 0) if is_open else (255, 0, 0)
         
         x, y = valve_data["x"], valve_data["y"]
-        
-        # Draw valve circle
         draw.ellipse([x-10, y-10, x+10, y+10], fill=color, outline="white", width=2)
-        
-        # Draw valve label
         draw.text((x+12, y-10), tag, fill="white", stroke_fill="black", stroke_width=1)
     
     return img.convert("RGB")
 
 def run_simulation(system_name):
-    """Run the simulation for selected system"""
+    """Run simulation for selected system"""
     display_names = {
         "mixing": "Mixing Area",
         "supply": "Pressure Supply", 
@@ -187,17 +211,12 @@ def run_simulation(system_name):
     # Load data
     valves, pipes, png_path = load_system_data(system_name)
     
-    if not valves or not pipes:
-        st.error("❌ Cannot run simulation - missing valve or pipe data")
-        st.info("Required files:")
-        st.write(f"- valves: data/valves_{system_name}.json")
-        st.write(f"- pipes: data/pipes_{system_name}.json")
-        st.write(f"- png: assets/p&id_{system_name}.png")
-        return
-    
-    if not png_path:
-        st.error(f"❌ P&ID image not found for {system_name}")
-        st.info("Looking for: assets/p&id_{system_name}.png")
+    if not valves or not pipes or not png_path:
+        st.error("❌ Cannot run - missing files")
+        st.info("Looking for:")
+        st.write(f"- Valves: valves_{system_name}.json")
+        st.write(f"- Pipes: pipes_{system_name}.json") 
+        st.write(f"- PNG: p&id_{system_name}.png")
         return
     
     # Initialize valve states
@@ -205,7 +224,7 @@ def run_simulation(system_name):
         if tag not in st.session_state.valve_states:
             st.session_state.valve_states[tag] = False
     
-    # Valve controls in sidebar
+    # Sidebar controls
     with st.sidebar:
         st.header("🎛️ Valve Controls")
         for tag in valves:
@@ -220,67 +239,55 @@ def run_simulation(system_name):
         st.metric("Open Valves", open_valves)
         st.metric("Total Valves", len(valves))
         st.metric("Total Pipes", len(pipes))
-        
-        # Pipe selection
-        st.header("📏 Pipe Selection")
-        if st.button("Unselect Pipe", key="unselect"):
-            st.session_state.selected_pipe = None
-            st.rerun()
-        
-        for i in range(min(10, len(pipes))):  # Show first 10 pipes
-            is_selected = i == st.session_state.selected_pipe
-            label = f"🔷 Pipe {i+1}" if is_selected else f"Pipe {i+1}"
-            if st.button(label, key=f"pipe_{i}"):
-                st.session_state.selected_pipe = i
-                st.rerun()
     
-    # Render and display P&ID
+    # Main display
     col1, col2 = st.columns([3, 1])
     
     with col1:
-        rendered_image = render_pid_with_overlay(valves, pipes, png_path, display_names[system_name])
-        st.image(rendered_image, use_container_width=True, 
-                caption=f"{display_names[system_name]} - Green=Flow, Red=Closed Valve")
+        image = render_pid_with_overlay(valves, pipes, png_path, display_names[system_name])
+        st.image(image, use_container_width=True, 
+                caption=f"{display_names[system_name]} - Interactive P&ID")
     
     with col2:
         st.header("🎯 Legend")
-        st.write("🟢 **Green pipes**: Fluid flowing")
-        st.write("🔵 **Blue pipes**: No flow")
+        st.write("🟢 **Green pipes**: Flow")
+        st.write("🔵 **Blue pipes**: No flow") 
         st.write("🟣 **Purple pipes**: Selected")
         st.write("🟢 **Green valves**: Open")
         st.write("🔴 **Red valves**: Closed")
-        st.write("---")
-        st.info("💡 **Click valves** in sidebar to open/close them")
-        st.info("💡 **Click pipes** in sidebar to select them")
 
 # ==================== MAIN DISPLAY ====================
 if st.session_state.current_system == "home":
     st.markdown("## 🏠 Welcome to Rig Simulation")
-    st.markdown("👆 **Select a system from the buttons above to see the actual P&ID diagrams**")
     
-    # File status
+    # Show system status
     st.markdown("---")
     st.subheader("📁 System Status")
     
     systems = ["mixing", "supply", "dgs", "return", "seal"]
     for system in systems:
-        valves_file = f"data/valves_{system}.json"
-        pipes_file = f"data/pipes_{system}.json"
-        png_file = f"assets/p&id_{system}.png"
+        valves_path, pipes_path, png_path = find_system_files(system)
         
-        valves_ok = os.path.exists(valves_file)
-        pipes_ok = os.path.exists(pipes_file)
-        png_ok = os.path.exists(png_file)
+        status = "✅ READY" if all([valves_path, pipes_path, png_path]) else "❌ INCOMPLETE"
+        st.write(f"**{system.title()}**: {status}")
         
-        if valves_ok and pipes_ok and png_ok:
-            st.success(f"✅ {system.title()}: READY")
-        elif valves_ok and pipes_ok:
-            st.warning(f"⚠️ {system.title()}: Data OK, PNG missing")
+        if valves_path:
+            st.write(f"  - Valves: ✅ {os.path.basename(valves_path)}")
         else:
-            st.error(f"❌ {system.title()}: Missing files")
+            st.write(f"  - Valves: ❌ Missing")
+            
+        if pipes_path:
+            st.write(f"  - Pipes: ✅ {os.path.basename(pipes_path)}")
+        else:
+            st.write(f"  - Pipes: ❌ Missing")
+            
+        if png_path:
+            st.write(f"  - P&ID: ✅ {os.path.basename(png_path)}")
+        else:
+            st.write(f"  - P&ID: ❌ Missing")
 
 else:
     run_simulation(st.session_state.current_system)
 
 st.markdown("---")
-st.success("🎯 **Interactive P&ID Simulation** - Click valves to see real-time flow changes!")
+st.success("🎯 **Click systems above to view P&IDs and interact with valves!**")
