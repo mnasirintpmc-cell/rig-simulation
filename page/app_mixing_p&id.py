@@ -3,14 +3,14 @@ from PIL import Image, ImageDraw
 import json
 import math
 
-st.set_page_config(layout="wide")
+st.set_page_config(layout="wide", page_title="Rig Simulation")
 
-# SYSTEM-SPECIFIC CONFIG
-SYSTEM_NAME = "Mixing Area"
-PID_FILE = "P&ID_Mixing.png"
-VALVES_FILE = "valves_mixing.json"
-PIPES_FILE = "pipes_mixing.json"
-PRESSURE_SOURCES = [1, 5]  # Mixing system pressure inputs
+# ===================== CONFIG – CHANGE ONLY THESE 3 LINES PER P&ID =====================
+SYSTEM_NAME = "Mixing Area"                   
+PID_FILE = "P&ID_Mixing.png"                   
+VALVES_FILE = "valves_mixing.json"             
+PIPES_FILE = "pipes_mixing.json"               
+PRESSURE_SOURCES = [1, 5]  # Mixer feeds & additive inputs
 
 # ===================== LOAD DATA =====================
 def load_valves():
