@@ -1,4 +1,4 @@
-# Updated Calibration Tools section in the run_simulation function
+# Updated Calibration Tools section - FIXED
 def run_simulation(system_name):
     """Run simulation for selected system"""
     display_names = {
@@ -69,7 +69,7 @@ def run_simulation(system_name):
                 current_valve = valves[st.session_state.selected_valve]
                 st.info(f"**Selected: {st.session_state.selected_valve}**")
                 
-                # Show current location
+                # Show current location (READ-ONLY display)
                 st.subheader("📍 Current Location")
                 col1, col2 = st.columns(2)
                 with col1:
@@ -78,35 +78,46 @@ def run_simulation(system_name):
                     st.metric("Y Position", current_valve["y"])
                 
                 # Move valve to center
-                if st.button("🎯 Move to Center", key="center_valve"):
+                if st.button("🎯 Move to Center", key="center_valve", use_container_width=True):
                     try:
                         img = Image.open(png_path)
                         width, height = img.size
                         valves[st.session_state.selected_valve]["x"] = width // 2
                         valves[st.session_state.selected_valve]["y"] = height // 2
-                        st.session_state.temp_valve_x = width // 2
-                        st.session_state.temp_valve_y = height // 2
                         save_system_data(system_name, valves, pipes)
                         st.success("✅ Valve moved to center!")
                         st.rerun()
                     except Exception as e:
                         st.error(f"Error: {e}")
                 
-                # Manual position adjustment
+                # Manual position adjustment with separate update button
                 st.subheader("✏️ Adjust Position")
+                
+                # Use session state to store temporary values
+                if f"temp_valve_x_{system_name}" not in st.session_state:
+                    st.session_state[f"temp_valve_x_{system_name}"] = current_valve["x"]
+                if f"temp_valve_y_{system_name}" not in st.session_state:
+                    st.session_state[f"temp_valve_y_{system_name}"] = current_valve["y"]
+                
                 col1, col2 = st.columns(2)
                 with col1:
-                    new_x = st.number_input("X Position", 
-                                           value=st.session_state.temp_valve_x,
-                                           key="valve_x_input")
+                    new_x = st.number_input("New X Position", 
+                                           value=st.session_state[f"temp_valve_x_{system_name}"],
+                                           key=f"valve_x_input_{system_name}")
                 with col2:
-                    new_y = st.number_input("Y Position",
-                                           value=st.session_state.temp_valve_y,
-                                           key="valve_y_input")
+                    new_y = st.number_input("New Y Position",
+                                           value=st.session_state[f"temp_valve_y_{system_name}"],
+                                           key=f"valve_y_input_{system_name}")
                 
-                if st.button("💾 Update Valve Position", key="update_valve", use_container_width=True):
-                    valves[st.session_state.selected_valve]["x"] = new_x
-                    valves[st.session_state.selected_valve]["y"] = new_y
+                # Update temp values without rerun
+                if st.session_state[f"temp_valve_x_{system_name}"] != new_x:
+                    st.session_state[f"temp_valve_x_{system_name}"] = new_x
+                if st.session_state[f"temp_valve_y_{system_name}"] != new_y:
+                    st.session_state[f"temp_valve_y_{system_name}"] = new_y
+                
+                if st.button("💾 Update Valve Position", key=f"update_valve_{system_name}", use_container_width=True):
+                    valves[st.session_state.selected_valve]["x"] = st.session_state[f"temp_valve_x_{system_name}"]
+                    valves[st.session_state.selected_valve]["y"] = st.session_state[f"temp_valve_y_{system_name}"]
                     save_system_data(system_name, valves, pipes)
                     st.success("✅ Valve position updated!")
                     st.rerun()
@@ -137,7 +148,7 @@ def run_simulation(system_name):
                 current_pipe = pipes[st.session_state.selected_pipe]
                 st.info(f"**Selected: Pipe {st.session_state.selected_pipe + 1}**")
                 
-                # Show current pipe locations
+                # Show current pipe locations (READ-ONLY display)
                 st.subheader("📍 Current Locations")
                 col1, col2 = st.columns(2)
                 with col1:
@@ -148,7 +159,7 @@ def run_simulation(system_name):
                     st.metric("End Y", current_pipe["y2"])
                 
                 # Move pipe to center
-                if st.button("🎯 Move Pipe to Center", key="center_pipe"):
+                if st.button("🎯 Move Pipe to Center", key="center_pipe", use_container_width=True):
                     try:
                         img = Image.open(png_path)
                         width, height = img.size
@@ -167,18 +178,52 @@ def run_simulation(system_name):
                     except Exception as e:
                         st.error(f"Error: {e}")
                 
-                # Manual pipe position adjustment
+                # Manual pipe position adjustment with separate update button
                 st.subheader("✏️ Adjust Positions")
+                
+                # Use session state to store temporary values
+                if f"temp_pipe_x1_{system_name}" not in st.session_state:
+                    st.session_state[f"temp_pipe_x1_{system_name}"] = current_pipe["x1"]
+                if f"temp_pipe_y1_{system_name}" not in st.session_state:
+                    st.session_state[f"temp_pipe_y1_{system_name}"] = current_pipe["y1"]
+                if f"temp_pipe_x2_{system_name}" not in st.session_state:
+                    st.session_state[f"temp_pipe_x2_{system_name}"] = current_pipe["x2"]
+                if f"temp_pipe_y2_{system_name}" not in st.session_state:
+                    st.session_state[f"temp_pipe_y2_{system_name}"] = current_pipe["y2"]
+                
                 col1, col2 = st.columns(2)
                 with col1:
-                    x1 = st.number_input("Start X", value=st.session_state.temp_pipe_x1, key="pipe_x1_input")
-                    y1 = st.number_input("Start Y", value=st.session_state.temp_pipe_y1, key="pipe_y1_input")
+                    x1 = st.number_input("New Start X", 
+                                        value=st.session_state[f"temp_pipe_x1_{system_name}"], 
+                                        key=f"pipe_x1_input_{system_name}")
+                    y1 = st.number_input("New Start Y", 
+                                        value=st.session_state[f"temp_pipe_y1_{system_name}"], 
+                                        key=f"pipe_y1_input_{system_name}")
                 with col2:
-                    x2 = st.number_input("End X", value=st.session_state.temp_pipe_x2, key="pipe_x2_input")
-                    y2 = st.number_input("End Y", value=st.session_state.temp_pipe_y2, key="pipe_y2_input")
+                    x2 = st.number_input("New End X", 
+                                        value=st.session_state[f"temp_pipe_x2_{system_name}"], 
+                                        key=f"pipe_x2_input_{system_name}")
+                    y2 = st.number_input("New End Y", 
+                                        value=st.session_state[f"temp_pipe_y2_{system_name}"], 
+                                        key=f"pipe_y2_input_{system_name}")
                 
-                if st.button("💾 Update Pipe Position", key="update_pipe", use_container_width=True):
-                    pipes[st.session_state.selected_pipe] = {"x1": x1, "y1": y1, "x2": x2, "y2": y2}
+                # Update temp values without rerun
+                if st.session_state[f"temp_pipe_x1_{system_name}"] != x1:
+                    st.session_state[f"temp_pipe_x1_{system_name}"] = x1
+                if st.session_state[f"temp_pipe_y1_{system_name}"] != y1:
+                    st.session_state[f"temp_pipe_y1_{system_name}"] = y1
+                if st.session_state[f"temp_pipe_x2_{system_name}"] != x2:
+                    st.session_state[f"temp_pipe_x2_{system_name}"] = x2
+                if st.session_state[f"temp_pipe_y2_{system_name}"] != y2:
+                    st.session_state[f"temp_pipe_y2_{system_name}"] = y2
+                
+                if st.button("💾 Update Pipe Position", key=f"update_pipe_{system_name}", use_container_width=True):
+                    pipes[st.session_state.selected_pipe] = {
+                        "x1": st.session_state[f"temp_pipe_x1_{system_name}"],
+                        "y1": st.session_state[f"temp_pipe_y1_{system_name}"],
+                        "x2": st.session_state[f"temp_pipe_x2_{system_name}"],
+                        "y2": st.session_state[f"temp_pipe_y2_{system_name}"]
+                    }
                     save_system_data(system_name, valves, pipes)
                     st.success("✅ Pipe position updated!")
                     st.rerun()
