@@ -1,4 +1,4 @@
-# streamlit_app.py
+# streamlit_app.py - RESTORED WORKING VERSION WITH ENHANCED EDITING
 import streamlit as st
 from PIL import Image, ImageDraw
 import json
@@ -34,6 +34,8 @@ if 'temp_pipe_x2' not in st.session_state:
     st.session_state.temp_pipe_x2 = 0
 if 'temp_pipe_y2' not in st.session_state:
     st.session_state.temp_pipe_y2 = 0
+if 'edit_mode' not in st.session_state:
+    st.session_state.edit_mode = False
 
 # ==================== CORRECT FILE MAPPING ====================
 def get_system_files(system_name):
@@ -136,6 +138,7 @@ with col1:
         st.session_state.selected_pipe = None
         st.session_state.selected_valve = None
         st.session_state.calibration_mode = False
+        st.session_state.edit_mode = False
         st.rerun()
 
 with col2:
@@ -144,6 +147,7 @@ with col2:
         st.session_state.selected_pipe = None
         st.session_state.selected_valve = None
         st.session_state.calibration_mode = False
+        st.session_state.edit_mode = False
         st.rerun()
 
 with col3:
@@ -152,6 +156,7 @@ with col3:
         st.session_state.selected_pipe = None
         st.session_state.selected_valve = None
         st.session_state.calibration_mode = False
+        st.session_state.edit_mode = False
         st.rerun()
 
 with col4:
@@ -160,6 +165,7 @@ with col4:
         st.session_state.selected_pipe = None
         st.session_state.selected_valve = None
         st.session_state.calibration_mode = False
+        st.session_state.edit_mode = False
         st.rerun()
 
 with col5:
@@ -168,6 +174,7 @@ with col5:
         st.session_state.selected_pipe = None
         st.session_state.selected_valve = None
         st.session_state.calibration_mode = False
+        st.session_state.edit_mode = False
         st.rerun()
 
 st.markdown("---")
@@ -212,7 +219,7 @@ def render_pid_with_overlay(valves, pipes, png_path, system_name):
             draw.ellipse([pipe["x2"]-6, pipe["y2"]-6, pipe["x2"]+6, pipe["y2"]+6], 
                         fill=(255, 0, 0), outline="white", width=2)
     
-    # Draw valves - 10% BIGGER than current size (current was 4, now 4.4 ≈ 4)
+    # Draw valves
     for tag, valve_data in valves.items():
         is_open = st.session_state.valve_states.get(tag, False)
         
@@ -220,23 +227,23 @@ def render_pid_with_overlay(valves, pipes, png_path, system_name):
             color = (180, 0, 255)  # Purple for selected valve
             outline = "white"
             outline_width = 2
-            radius = 4  # 4.4 rounded down to 4 (10% bigger than 4)
+            radius = 4
         elif is_open:
             color = (0, 255, 0)  # Green for open
             outline = "white"
             outline_width = 2
-            radius = 4  # 4.4 rounded down to 4 (10% bigger than 4)
+            radius = 4
         else:
             color = (255, 0, 0)  # Red for closed
             outline = "white"
             outline_width = 2
-            radius = 4  # 4.4 rounded down to 4 (10% bigger than 4)
+            radius = 4
         
         x, y = valve_data["x"], valve_data["y"]
-        # Draw valve circle - slightly bigger size
+        # Draw valve circle
         draw.ellipse([x-radius, y-radius, x+radius, y+radius], 
                     fill=color, outline=outline, width=outline_width)
-        # Slightly bigger text offset
+        # Text offset
         draw.text((x+7, y-9), tag, fill="white", stroke_fill="black", stroke_width=1)
     
     return img.convert("RGB")
@@ -289,6 +296,96 @@ def run_simulation(system_name):
         if st.session_state.calibration_mode:
             st.warning("🔧 CALIBRATION MODE ACTIVE")
             
+            # Edit mode toggle
+            if st.button("✏️ Toggle Edit Mode", key="edit_toggle", use_container_width=True):
+                st.session_state.edit_mode = not st.session_state.edit_mode
+                st.rerun()
+            
+            if st.session_state.edit_mode:
+                st.error("🗑️ EDIT MODE - Can delete/rename items")
+                
+                # Valve management
+                st.subheader("🔧 Valve Management")
+                
+                # Add new valve
+                st.write("**Add New Valve:**")
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    new_valve_id = st.text_input("Valve ID", "V-New", key="new_valve_id")
+                with col2:
+                    new_valve_x = st.number_input("X", value=400, key="new_valve_x")
+                with col3:
+                    new_valve_y = st.number_input("Y", value=300, key="new_valve_y")
+                
+                if st.button("➕ Add Valve", key="add_valve"):
+                    if new_valve_id and new_valve_id not in valves:
+                        valves[new_valve_id] = {"x": new_valve_x, "y": new_valve_y}
+                        st.session_state.valve_states[new_valve_id] = False
+                        save_system_data(system_name, valves, pipes)
+                        st.success(f"✅ Added valve {new_valve_id}")
+                        st.rerun()
+                    else:
+                        st.error("❌ Valve ID already exists or is empty")
+                
+                # Rename selected valve
+                if st.session_state.selected_valve:
+                    st.write("**Rename Selected Valve:**")
+                    new_name = st.text_input("New Name", st.session_state.selected_valve, key="rename_valve")
+                    if st.button("🔄 Rename Valve", key="rename_valve_btn"):
+                        if new_name and new_name not in valves:
+                            valves[new_name] = valves.pop(st.session_state.selected_valve)
+                            st.session_state.valve_states[new_name] = st.session_state.valve_states.pop(st.session_state.selected_valve, False)
+                            st.session_state.selected_valve = new_name
+                            save_system_data(system_name, valves, pipes)
+                            st.success(f"✅ Renamed to {new_name}")
+                            st.rerun()
+                        else:
+                            st.error("❌ Name already exists or is empty")
+                
+                # Delete selected valve
+                if st.session_state.selected_valve:
+                    if st.button("🗑️ Delete Selected Valve", key="delete_valve"):
+                        del valves[st.session_state.selected_valve]
+                        if st.session_state.selected_valve in st.session_state.valve_states:
+                            del st.session_state.valve_states[st.session_state.selected_valve]
+                        st.session_state.selected_valve = None
+                        save_system_data(system_name, valves, pipes)
+                        st.success("✅ Valve deleted")
+                        st.rerun()
+                
+                # Pipe management
+                st.subheader("🔧 Pipe Management")
+                
+                # Add new pipe
+                st.write("**Add New Pipe:**")
+                col1, col2 = st.columns(2)
+                with col1:
+                    new_pipe_x1 = st.number_input("Start X", value=350, key="new_pipe_x1")
+                    new_pipe_y1 = st.number_input("Start Y", value=250, key="new_pipe_y1")
+                with col2:
+                    new_pipe_x2 = st.number_input("End X", value=450, key="new_pipe_x2")
+                    new_pipe_y2 = st.number_input("End Y", value=250, key="new_pipe_y2")
+                
+                if st.button("➕ Add Pipe", key="add_pipe"):
+                    pipes.append({
+                        "x1": new_pipe_x1,
+                        "y1": new_pipe_y1,
+                        "x2": new_pipe_x2,
+                        "y2": new_pipe_y2
+                    })
+                    save_system_data(system_name, valves, pipes)
+                    st.success("✅ Added new pipe")
+                    st.rerun()
+                
+                # Delete selected pipe
+                if st.session_state.selected_pipe is not None:
+                    if st.button("🗑️ Delete Selected Pipe", key="delete_pipe"):
+                        pipes.pop(st.session_state.selected_pipe)
+                        st.session_state.selected_pipe = None
+                        save_system_data(system_name, valves, pipes)
+                        st.success("✅ Pipe deleted")
+                        st.rerun()
+            
             # Valve selection for calibration
             st.subheader("Select Valve to Calibrate")
             valve_list = list(valves.keys())
@@ -308,7 +405,16 @@ def run_simulation(system_name):
                     st.rerun()
             
             if st.session_state.selected_valve and st.session_state.selected_valve in valves:
-                st.info(f"Selected: {st.session_state.selected_valve}")
+                current_valve = valves[st.session_state.selected_valve]
+                st.info(f"**Selected: {st.session_state.selected_valve}**")
+                
+                # Show current location
+                st.subheader("📍 Current Location")
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric("X Position", current_valve["x"])
+                with col2:
+                    st.metric("Y Position", current_valve["y"])
                 
                 # Move valve to center
                 if st.button("🎯 Move to Center", key="center_valve"):
@@ -326,6 +432,7 @@ def run_simulation(system_name):
                         st.error(f"Error: {e}")
                 
                 # Manual position adjustment
+                st.subheader("✏️ Adjust Position")
                 col1, col2 = st.columns(2)
                 with col1:
                     new_x = st.number_input("X Position", 
@@ -366,7 +473,18 @@ def run_simulation(system_name):
                 st.error("No pipes found in data")
             
             if st.session_state.selected_pipe is not None and st.session_state.selected_pipe < len(pipes):
-                st.info(f"Selected: Pipe {st.session_state.selected_pipe + 1}")
+                current_pipe = pipes[st.session_state.selected_pipe]
+                st.info(f"**Selected: Pipe {st.session_state.selected_pipe + 1}**")
+                
+                # Show current pipe locations
+                st.subheader("📍 Current Locations")
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric("Start X", current_pipe["x1"])
+                    st.metric("Start Y", current_pipe["y1"])
+                with col2:
+                    st.metric("End X", current_pipe["x2"])
+                    st.metric("End Y", current_pipe["y2"])
                 
                 # Move pipe to center
                 if st.button("🎯 Move Pipe to Center", key="center_pipe"):
@@ -389,6 +507,7 @@ def run_simulation(system_name):
                         st.error(f"Error: {e}")
                 
                 # Manual pipe position adjustment
+                st.subheader("✏️ Adjust Positions")
                 col1, col2 = st.columns(2)
                 with col1:
                     x1 = st.number_input("Start X", value=st.session_state.temp_pipe_x1, key="pipe_x1_input")
@@ -438,10 +557,12 @@ def run_simulation(system_name):
         st.write("🟢 **Green pipes/valves**: Flow/Open")
         st.write("🔵 **Blue pipes**: No flow")
         st.write("🔴 **Red valves**: Closed")
+        if st.session_state.edit_mode:
+            st.write("🗑️ **Edit Mode**: Can add/delete/rename")
         st.write("---")
         st.info("💡 **Enable Calibration** to adjust positions")
+        st.info("💡 **Enable Edit Mode** to manage items")
         st.info("💡 **Select items** to make them purple")
-        st.info("💡 **Move to Center** for easy positioning")
 
 # ==================== MAIN DISPLAY ====================
 if st.session_state.current_system == "home":
@@ -500,4 +621,4 @@ else:
     run_simulation(st.session_state.current_system)
 
 st.markdown("---")
-st.success("🎯 **Interactive P&ID Simulation** - Now with perfectly sized valves and position calibration! 🎯")
+st.success("🎯 **Interactive P&ID Simulation** - Now with full editing capabilities! 🎯")
