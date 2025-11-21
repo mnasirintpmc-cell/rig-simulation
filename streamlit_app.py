@@ -22,6 +22,18 @@ if 'selected_valve' not in st.session_state:
     st.session_state.selected_valve = None
 if 'calibration_mode' not in st.session_state:
     st.session_state.calibration_mode = False
+if 'temp_valve_x' not in st.session_state:
+    st.session_state.temp_valve_x = 0
+if 'temp_valve_y' not in st.session_state:
+    st.session_state.temp_valve_y = 0
+if 'temp_pipe_x1' not in st.session_state:
+    st.session_state.temp_pipe_x1 = 0
+if 'temp_pipe_y1' not in st.session_state:
+    st.session_state.temp_pipe_y1 = 0
+if 'temp_pipe_x2' not in st.session_state:
+    st.session_state.temp_pipe_x2 = 0
+if 'temp_pipe_y2' not in st.session_state:
+    st.session_state.temp_pipe_y2 = 0
 
 # ==================== CORRECT FILE MAPPING ====================
 def get_system_files(system_name):
@@ -257,15 +269,14 @@ def run_simulation(system_name):
         for tag in valves:
             state = st.session_state.valve_states[tag]
             label = f"{'🟢 OPEN' if state else '🔴 CLOSED'} {tag}"
-            if st.button(label, key=f"{system_name}_{tag}"):
+            if st.button(label, key=f"valve_{system_name}_{tag}"):
                 st.session_state.valve_states[tag] = not state
                 st.rerun()
         
         st.header("📏 Calibration Tools")
         
         # Calibration mode toggle
-        calibration_on = st.session_state.calibration_mode
-        if st.button("🎯 Toggle Calibration Mode", use_container_width=True):
+        if st.button("🎯 Toggle Calibration Mode", key="calib_toggle", use_container_width=True):
             st.session_state.calibration_mode = not st.session_state.calibration_mode
             st.rerun()
         
@@ -275,27 +286,35 @@ def run_simulation(system_name):
             # Valve selection for calibration
             st.subheader("Select Valve to Calibrate")
             valve_list = list(valves.keys())
-            selected_valve = st.selectbox("Choose valve:", valve_list, 
-                                         index=valve_list.index(st.session_state.selected_valve) 
-                                         if st.session_state.selected_valve in valve_list else 0,
-                                         key="valve_select")
+            if not valve_list:
+                st.error("No valves found in data")
+            else:
+                selected_valve = st.selectbox("Choose valve:", valve_list, 
+                                             key="valve_select")
+                
+                if st.button("🎯 Select This Valve", key="select_valve_btn"):
+                    st.session_state.selected_valve = selected_valve
+                    st.session_state.selected_pipe = None
+                    # Store current position in temp state
+                    if selected_valve in valves:
+                        st.session_state.temp_valve_x = valves[selected_valve]["x"]
+                        st.session_state.temp_valve_y = valves[selected_valve]["y"]
+                    st.rerun()
             
-            if selected_valve != st.session_state.selected_valve:
-                st.session_state.selected_valve = selected_valve
-                st.session_state.selected_pipe = None
-                st.rerun()
-            
-            if st.session_state.selected_valve:
+            if st.session_state.selected_valve and st.session_state.selected_valve in valves:
                 st.info(f"Selected: {st.session_state.selected_valve}")
                 
                 # Move valve to center
-                if st.button("🎯 Move to Center", use_container_width=True):
+                if st.button("🎯 Move to Center", key="center_valve"):
                     try:
                         img = Image.open(png_path)
                         width, height = img.size
                         valves[st.session_state.selected_valve]["x"] = width // 2
                         valves[st.session_state.selected_valve]["y"] = height // 2
+                        st.session_state.temp_valve_x = width // 2
+                        st.session_state.temp_valve_y = height // 2
                         save_system_data(system_name, valves, pipes)
+                        st.success("✅ Valve moved to center!")
                         st.rerun()
                     except Exception as e:
                         st.error(f"Error: {e}")
@@ -304,39 +323,47 @@ def run_simulation(system_name):
                 col1, col2 = st.columns(2)
                 with col1:
                     new_x = st.number_input("X Position", 
-                                           value=valves[st.session_state.selected_valve]["x"],
-                                           key="valve_x")
+                                           value=st.session_state.temp_valve_x,
+                                           key="valve_x_input")
                 with col2:
                     new_y = st.number_input("Y Position",
-                                           value=valves[st.session_state.selected_valve]["y"],
-                                           key="valve_y")
+                                           value=st.session_state.temp_valve_y,
+                                           key="valve_y_input")
                 
-                if st.button("💾 Update Valve Position", use_container_width=True):
+                if st.button("💾 Update Valve Position", key="update_valve"):
                     valves[st.session_state.selected_valve]["x"] = new_x
                     valves[st.session_state.selected_valve]["y"] = new_y
                     save_system_data(system_name, valves, pipes)
+                    st.success("✅ Valve position updated!")
                     st.rerun()
             
             # Pipe selection for calibration
             st.subheader("Select Pipe to Calibrate")
-            pipe_options = [f"Pipe {i+1}" for i in range(len(pipes))]
-            selected_pipe_idx = st.selectbox("Choose pipe:", pipe_options,
-                                            index=st.session_state.selected_pipe if st.session_state.selected_pipe is not None else 0,
-                                            key="pipe_select")
-            
-            if selected_pipe_idx:
-                pipe_idx = pipe_options.index(selected_pipe_idx)
-                if pipe_idx != st.session_state.selected_pipe:
+            if pipes:
+                pipe_options = [f"Pipe {i+1}" for i in range(len(pipes))]
+                selected_pipe_name = st.selectbox("Choose pipe:", pipe_options,
+                                                key="pipe_select")
+                
+                if st.button("🎯 Select This Pipe", key="select_pipe_btn"):
+                    pipe_idx = pipe_options.index(selected_pipe_name)
                     st.session_state.selected_pipe = pipe_idx
                     st.session_state.selected_valve = None
+                    # Store current position in temp state
+                    if pipe_idx < len(pipes):
+                        pipe = pipes[pipe_idx]
+                        st.session_state.temp_pipe_x1 = pipe["x1"]
+                        st.session_state.temp_pipe_y1 = pipe["y1"]
+                        st.session_state.temp_pipe_x2 = pipe["x2"]
+                        st.session_state.temp_pipe_y2 = pipe["y2"]
                     st.rerun()
+            else:
+                st.error("No pipes found in data")
             
-            if st.session_state.selected_pipe is not None:
+            if st.session_state.selected_pipe is not None and st.session_state.selected_pipe < len(pipes):
                 st.info(f"Selected: Pipe {st.session_state.selected_pipe + 1}")
-                pipe = pipes[st.session_state.selected_pipe]
                 
                 # Move pipe to center
-                if st.button("🎯 Move Pipe to Center", use_container_width=True):
+                if st.button("🎯 Move Pipe to Center", key="center_pipe"):
                     try:
                         img = Image.open(png_path)
                         width, height = img.size
@@ -350,6 +377,7 @@ def run_simulation(system_name):
                             "y2": center_y
                         }
                         save_system_data(system_name, valves, pipes)
+                        st.success("✅ Pipe moved to center!")
                         st.rerun()
                     except Exception as e:
                         st.error(f"Error: {e}")
@@ -357,19 +385,20 @@ def run_simulation(system_name):
                 # Manual pipe position adjustment
                 col1, col2 = st.columns(2)
                 with col1:
-                    x1 = st.number_input("Start X", value=pipe["x1"], key="pipe_x1")
-                    y1 = st.number_input("Start Y", value=pipe["y1"], key="pipe_y1")
+                    x1 = st.number_input("Start X", value=st.session_state.temp_pipe_x1, key="pipe_x1_input")
+                    y1 = st.number_input("Start Y", value=st.session_state.temp_pipe_y1, key="pipe_y1_input")
                 with col2:
-                    x2 = st.number_input("End X", value=pipe["x2"], key="pipe_x2")
-                    y2 = st.number_input("End Y", value=pipe["y2"], key="pipe_y2")
+                    x2 = st.number_input("End X", value=st.session_state.temp_pipe_x2, key="pipe_x2_input")
+                    y2 = st.number_input("End Y", value=st.session_state.temp_pipe_y2, key="pipe_y2_input")
                 
-                if st.button("💾 Update Pipe Position", use_container_width=True):
+                if st.button("💾 Update Pipe Position", key="update_pipe"):
                     pipes[st.session_state.selected_pipe] = {"x1": x1, "y1": y1, "x2": x2, "y2": y2}
                     save_system_data(system_name, valves, pipes)
+                    st.success("✅ Pipe position updated!")
                     st.rerun()
             
             # Deselect button
-            if st.button("❌ Deselect All", use_container_width=True):
+            if st.button("❌ Deselect All", key="deselect_all"):
                 st.session_state.selected_valve = None
                 st.session_state.selected_pipe = None
                 st.rerun()
@@ -384,7 +413,7 @@ def run_simulation(system_name):
         st.metric("Total Pipes", len(pipes))
         
         # Clear all valves button
-        if st.button("🔄 Clear All Valves", use_container_width=True):
+        if st.button("🔄 Clear All Valves", key="clear_valves"):
             for tag in valves:
                 st.session_state.valve_states[tag] = False
             st.rerun()
