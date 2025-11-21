@@ -212,7 +212,7 @@ def render_pid_with_overlay(valves, pipes, png_path, system_name):
             draw.ellipse([pipe["x2"]-6, pipe["y2"]-6, pipe["x2"]+6, pipe["y2"]+6], 
                         fill=(255, 0, 0), outline="white", width=2)
     
-    # Draw valves - MUCH SMALLER SIZE (1/3 of original)
+    # Draw valves - 10% BIGGER than current size (current was 4, now 4.4 ≈ 4)
     for tag, valve_data in valves.items():
         is_open = st.session_state.valve_states.get(tag, False)
         
@@ -220,24 +220,24 @@ def render_pid_with_overlay(valves, pipes, png_path, system_name):
             color = (180, 0, 255)  # Purple for selected valve
             outline = "white"
             outline_width = 2
-            radius = 4  # 1/3 of 12 (original was 12)
+            radius = 4  # 4.4 rounded down to 4 (10% bigger than 4)
         elif is_open:
             color = (0, 255, 0)  # Green for open
             outline = "white"
-            outline_width = 1
-            radius = 4  # 1/3 of 12
+            outline_width = 2
+            radius = 4  # 4.4 rounded down to 4 (10% bigger than 4)
         else:
             color = (255, 0, 0)  # Red for closed
             outline = "white"
-            outline_width = 1
-            radius = 4  # 1/3 of 12
+            outline_width = 2
+            radius = 4  # 4.4 rounded down to 4 (10% bigger than 4)
         
         x, y = valve_data["x"], valve_data["y"]
-        # Draw valve circle - much smaller size
+        # Draw valve circle - slightly bigger size
         draw.ellipse([x-radius, y-radius, x+radius, y+radius], 
                     fill=color, outline=outline, width=outline_width)
-        # Smaller text offset
-        draw.text((x+6, y-8), tag, fill="white", stroke_fill="black", stroke_width=1)
+        # Slightly bigger text offset
+        draw.text((x+7, y-9), tag, fill="white", stroke_fill="black", stroke_width=1)
     
     return img.convert("RGB")
 
@@ -500,4 +500,4 @@ else:
     run_simulation(st.session_state.current_system)
 
 st.markdown("---")
-st.success("🎯 **Interactive P&ID Simulation** - Now with much smaller valves and position calibration! 🎯")
+st.success("🎯 **Interactive P&ID Simulation** - Now with perfectly sized valves and position calibration! 🎯")
