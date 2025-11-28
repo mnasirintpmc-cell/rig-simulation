@@ -1,4 +1,4 @@
-# streamlit_app.py - WITH PRESSURE PROPAGATION USING VALVE-PIPE CORRELATIONS
+# streamlit_app.py - UPDATED FOR CORRECT PIPE-VALVE CORRELATIONS
 import streamlit as st
 from PIL import Image, ImageDraw
 import json
@@ -43,31 +43,44 @@ def get_pressure_config(system_name):
     pressure_config = {
         "mixing": {
             "pressure_sources": [1, 5],  # Pipe numbers that are pressure sources
-            "special_valves": ["V-101", "V-102"]  # Valves that control pressure flow
+            "special_valves": ["v-101", "v-102"]  # Valves that control pressure flow
         },
         "supply": {
             "pressure_sources": [1, 3, 7],
-            "special_valves": ["V-201", "V-202"]
+            "special_valves": ["v-201", "v-202"]
         },
         "dgs": {
             "pressure_sources": [1, 6, 11],
-            "special_valves": ["V-301", "V-302"]
+            "special_valves": ["v-301", "v-302"]
         },
         "return": {
             "pressure_sources": [2, 8],
-            "special_valves": ["V-401", "V-402"]
+            "special_valves": ["v-401", "v-402"]
         },
         "seal": {
             "pressure_sources": [1, 4, 9],
-            "special_valves": ["V-501", "V-502"]
+            "special_valves": ["v-501", "v-502"]
         }
     }
     return pressure_config.get(system_name, {"pressure_sources": [], "special_valves": []})
 
+# ==================== CORRECT PIPE FIELD NAMES FOR EACH SYSTEM ====================
+def get_pipe_field_name(system_name):
+    """Get the correct pipe connection field name for each system"""
+    pipe_fields = {
+        "mixing": "pipes_mixing.json",
+        "supply": "pipes_pressure_in.json", 
+        "dgs": "pipes_dgs.json",
+        "return": "pipes_pressure_return.json",
+        "seal": "pipes_separation_seal.json"
+    }
+    return pipe_fields.get(system_name, "connected_pipes")
+
 # ==================== PRESSURE PROPAGATION LOGIC ====================
 def build_pressure_network(pipes, valves, system_name):
-    """Build a network graph of pipes and valves using connected_pipes data"""
+    """Build a network graph of pipes and valves using correct pipe connection data"""
     network = {}
+    pipe_field = get_pipe_field_name(system_name)
     
     # Add all pipes to network
     for pipe_idx in range(len(pipes)):
@@ -78,7 +91,8 @@ def build_pressure_network(pipes, valves, system_name):
     
     # Add all valves to network and connect pipes
     for valve_tag, valve_data in valves.items():
-        connected_pipes = valve_data.get("connected_pipes", [])
+        # Use the correct pipe connection field for this system
+        connected_pipes = valve_data.get(pipe_field, [])
         network[valve_tag] = {
             "type": "valve", 
             "connected_pipes": connected_pipes,
@@ -406,7 +420,7 @@ def run_simulation(system_name):
     with st.sidebar:
         st.header("🎛️ Valve Controls")
         for tag in valves:
-            state = st.session_state.valve_states[tag]
+            state = st.session_state.valve_states.get(tag, False)
             # Mark special valves
             special_indicator = " ⭐" if tag in config["special_valves"] else ""
             label = f"{'🟢 OPEN' if state else '🔴 CLOSED'} {tag}{special_indicator}"
@@ -439,7 +453,7 @@ def run_simulation(system_name):
                 st.write("**Add New Valve:**")
                 col1, col2, col3 = st.columns(3)
                 with col1:
-                    new_valve_id = st.text_input("Valve ID", "V-New", key="new_valve_id")
+                    new_valve_id = st.text_input("Valve ID", "v-New", key="new_valve_id")
                 with col2:
                     new_valve_x = st.number_input("X", value=400, key="new_valve_x")
                 with col3:
@@ -447,10 +461,11 @@ def run_simulation(system_name):
                 
                 if st.button("➕ Add Valve", key="add_valve"):
                     if new_valve_id and new_valve_id not in valves:
+                        pipe_field = get_pipe_field_name(system_name)
                         valves[new_valve_id] = {
                             "x": new_valve_x, 
                             "y": new_valve_y,
-                            "connected_pipes": []  # Start with no connections
+                            pipe_field: []  # Use correct pipe field name
                         }
                         st.session_state.valve_states[new_valve_id] = False
                         save_system_data(system_name, valves, pipes)
@@ -549,7 +564,8 @@ def run_simulation(system_name):
                     st.metric("Y Position", current_valve["y"])
                 
                 # Show connected pipes
-                connected_pipes = current_valve.get("connected_pipes", [])
+                pipe_field = get_pipe_field_name(system_name)
+                connected_pipes = current_valve.get(pipe_field, [])
                 st.write(f"**Connected Pipes:** {[f'Pipe {p+1}' for p in connected_pipes]}")
                 
                 # Move valve to center
@@ -761,4 +777,4 @@ else:
     run_simulation(st.session_state.current_system)
 
 st.markdown("---")
-st.success("🎯 **Interactive P&ID Simulation** - Now with intelligent pressure propagation! 🎯")
+st.success("🎯 **Interactive P&ID Simulation** - Now with system-specific pipe correlations! 🎯")
