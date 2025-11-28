@@ -1,4 +1,4 @@
-# streamlit_app.py - RESTORED WORKING VERSION WITH ENHANCED EDITING
+# streamlit_app.py - WITH PRESSURE PROPAGATION USING VALVE-PIPE CORRELATIONS
 import streamlit as st
 from PIL import Image, ImageDraw
 import json
@@ -36,6 +36,118 @@ if 'temp_pipe_y2' not in st.session_state:
     st.session_state.temp_pipe_y2 = 0
 if 'edit_mode' not in st.session_state:
     st.session_state.edit_mode = False
+
+# ==================== PRESSURE SYSTEM CONFIGURATION ====================
+def get_pressure_config(system_name):
+    """Define pressure sources for each system"""
+    pressure_config = {
+        "mixing": {
+            "pressure_sources": [1, 5],  # Pipe numbers that are pressure sources
+            "special_valves": ["V-101", "V-102"]  # Valves that control pressure flow
+        },
+        "supply": {
+            "pressure_sources": [1, 3, 7],
+            "special_valves": ["V-201", "V-202"]
+        },
+        "dgs": {
+            "pressure_sources": [1, 6, 11],
+            "special_valves": ["V-301", "V-302"]
+        },
+        "return": {
+            "pressure_sources": [2, 8],
+            "special_valves": ["V-401", "V-402"]
+        },
+        "seal": {
+            "pressure_sources": [1, 4, 9],
+            "special_valves": ["V-501", "V-502"]
+        }
+    }
+    return pressure_config.get(system_name, {"pressure_sources": [], "special_valves": []})
+
+# ==================== PRESSURE PROPAGATION LOGIC ====================
+def build_pressure_network(pipes, valves, system_name):
+    """Build a network graph of pipes and valves using connected_pipes data"""
+    network = {}
+    
+    # Add all pipes to network
+    for pipe_idx in range(len(pipes)):
+        network[f"pipe_{pipe_idx}"] = {
+            "type": "pipe",
+            "connected_valves": []  # Will be populated from valve data
+        }
+    
+    # Add all valves to network and connect pipes
+    for valve_tag, valve_data in valves.items():
+        connected_pipes = valve_data.get("connected_pipes", [])
+        network[valve_tag] = {
+            "type": "valve", 
+            "connected_pipes": connected_pipes,
+            "is_open": st.session_state.valve_states.get(valve_tag, False),
+            "is_special": valve_tag in get_pressure_config(system_name)["special_valves"]
+        }
+        
+        # Connect pipes back to this valve
+        for pipe_idx in connected_pipes:
+            pipe_id = f"pipe_{pipe_idx}"
+            if pipe_id in network:
+                network[pipe_id]["connected_valves"].append(valve_tag)
+    
+    return network
+
+def propagate_pressure(network, pressure_sources, system_name):
+    """Propagate pressure through the network based on valve states"""
+    pressurized_nodes = set()
+    config = get_pressure_config(system_name)
+    
+    # Start from pressure sources (convert to 0-based indices)
+    for source_pipe in pressure_sources:
+        pipe_id = f"pipe_{source_pipe-1}"
+        pressurized_nodes.add(pipe_id)
+    
+    # Propagate pressure through the network
+    changed = True
+    while changed:
+        changed = False
+        
+        for node_id, node_data in network.items():
+            if node_id in pressurized_nodes:
+                # This node has pressure, propagate to neighbors
+                if node_data["type"] == "pipe":
+                    # Pipe can propagate to connected valves
+                    for valve_tag in node_data.get("connected_valves", []):
+                        if valve_tag not in pressurized_nodes:
+                            valve_data = network[valve_tag]
+                            # Special valves must be open to allow flow
+                            if valve_data["is_special"]:
+                                if valve_data["is_open"]:  # Special valve is open
+                                    pressurized_nodes.add(valve_tag)
+                                    changed = True
+                            else:
+                                # Regular valves always allow flow
+                                pressurized_nodes.add(valve_tag)
+                                changed = True
+                
+                elif node_data["type"] == "valve":
+                    # Valve can propagate to connected pipes if open
+                    if node_data["is_open"]:  # Valve is open
+                        for pipe_idx in node_data.get("connected_pipes", []):
+                            pipe_id = f"pipe_{pipe_idx}"
+                            if pipe_id not in pressurized_nodes:
+                                pressurized_nodes.add(pipe_id)
+                                changed = True
+    
+    return pressurized_nodes
+
+def get_pipe_pressure_status(pipe_index, pressurized_nodes):
+    """Check if a pipe has pressure and flow"""
+    pipe_id = f"pipe_{pipe_index}"
+    has_pressure = pipe_id in pressurized_nodes
+    
+    # For now, if pipe has pressure, it has flow
+    # You can add more complex flow logic here later
+    has_flow = has_pressure
+    
+    return has_pressure, has_flow
 
 # ==================== CORRECT FILE MAPPING ====================
 def get_system_files(system_name):
@@ -180,8 +292,8 @@ with col5:
 st.markdown("---")
 
 # ==================== RENDERING ====================
-def render_pid_with_overlay(valves, pipes, png_path, system_name):
-    """Render P&ID with interactive overlays"""
+def render_pid_with_overlay(valves, pipes, png_path, system_name, pressurized_nodes):
+    """Render P&ID with interactive overlays and pressure visualization"""
     try:
         img = Image.open(png_path).convert("RGBA")
     except Exception as e:
@@ -195,18 +307,21 @@ def render_pid_with_overlay(valves, pipes, png_path, system_name):
     
     draw = ImageDraw.Draw(img)
     
-    # Draw pipes
+    # Draw pipes with pressure coloring
     for i, pipe in enumerate(pipes):
-        has_flow = any(st.session_state.valve_states.get(tag, False) for tag in valves)
+        has_pressure, has_flow = get_pipe_pressure_status(i, pressurized_nodes)
         
         if i == st.session_state.selected_pipe:
             color = (180, 0, 255)  # Purple for selected pipe
             width = 8
         elif has_flow:
-            color = (0, 255, 0)  # Green for flow
+            color = (0, 255, 0)  # Green for flowing pipe
             width = 6
+        elif has_pressure:
+            color = (100, 180, 255)  # Light blue for pressurized but no flow
+            width = 5
         else:
-            color = (100, 100, 255)  # Blue for no flow
+            color = (100, 100, 255)  # Dark blue for no pressure
             width = 4
             
         draw.line([(pipe["x1"], pipe["y1"]), (pipe["x2"], pipe["y2"])], 
@@ -276,12 +391,25 @@ def run_simulation(system_name):
         if tag not in st.session_state.valve_states:
             st.session_state.valve_states[tag] = False
     
+    # Build pressure network and propagate pressure
+    config = get_pressure_config(system_name)
+    network = build_pressure_network(pipes, valves, system_name)
+    pressurized_nodes = propagate_pressure(network, config["pressure_sources"], system_name)
+    
+    # Count pressurized pipes
+    pressurized_pipes = sum(1 for i in range(len(pipes)) 
+                          if get_pipe_pressure_status(i, pressurized_nodes)[0])
+    flowing_pipes = sum(1 for i in range(len(pipes)) 
+                       if get_pipe_pressure_status(i, pressurized_nodes)[1])
+    
     # Sidebar controls
     with st.sidebar:
         st.header("🎛️ Valve Controls")
         for tag in valves:
             state = st.session_state.valve_states[tag]
-            label = f"{'🟢 OPEN' if state else '🔴 CLOSED'} {tag}"
+            # Mark special valves
+            special_indicator = " ⭐" if tag in config["special_valves"] else ""
+            label = f"{'🟢 OPEN' if state else '🔴 CLOSED'} {tag}{special_indicator}"
             if st.button(label, key=f"valve_{system_name}_{tag}"):
                 st.session_state.valve_states[tag] = not state
                 st.rerun()
@@ -319,7 +447,11 @@ def run_simulation(system_name):
                 
                 if st.button("➕ Add Valve", key="add_valve"):
                     if new_valve_id and new_valve_id not in valves:
-                        valves[new_valve_id] = {"x": new_valve_x, "y": new_valve_y}
+                        valves[new_valve_id] = {
+                            "x": new_valve_x, 
+                            "y": new_valve_y,
+                            "connected_pipes": []  # Start with no connections
+                        }
                         st.session_state.valve_states[new_valve_id] = False
                         save_system_data(system_name, valves, pipes)
                         st.success(f"✅ Added valve {new_valve_id}")
@@ -415,6 +547,10 @@ def run_simulation(system_name):
                     st.metric("X Position", current_valve["x"])
                 with col2:
                     st.metric("Y Position", current_valve["y"])
+                
+                # Show connected pipes
+                connected_pipes = current_valve.get("connected_pipes", [])
+                st.write(f"**Connected Pipes:** {[f'Pipe {p+1}' for p in connected_pipes]}")
                 
                 # Move valve to center
                 if st.button("🎯 Move to Center", key="center_valve"):
@@ -531,10 +667,11 @@ def run_simulation(system_name):
         else:
             st.info("🔧 Enable calibration to adjust positions")
         
-        st.header("📊 Status")
+        st.header("📊 Pressure Status")
         open_valves = sum(st.session_state.valve_states.values())
         st.metric("Open Valves", open_valves)
-        st.metric("Total Valves", len(valves))
+        st.metric("Pressurized Pipes", pressurized_pipes)
+        st.metric("Flowing Pipes", flowing_pipes)
         st.metric("Total Pipes", len(pipes))
         
         # Clear all valves button
@@ -547,22 +684,25 @@ def run_simulation(system_name):
     col1, col2 = st.columns([3, 1])
     
     with col1:
-        image = render_pid_with_overlay(valves, pipes, png_path, display_names[system_name])
+        image = render_pid_with_overlay(valves, pipes, png_path, system_name, pressurized_nodes)
         st.image(image, use_container_width=True, 
-                caption=f"{display_names[system_name]} - Purple=Selected | Green=Flow | Red=Closed")
+                caption=f"{display_names[system_name]} - Green=Flow | Light Blue=Pressurized | Dark Blue=No Pressure | Purple=Selected")
     
     with col2:
         st.header("🎯 Legend")
+        st.write("🟢 **Green pipes**: Fluid flowing")
+        st.write("🔵 **Light blue pipes**: Pressurized but no flow")
+        st.write("🔵 **Dark blue pipes**: No pressure")
         st.write("🟣 **Purple**: Selected for calibration")
-        st.write("🟢 **Green pipes/valves**: Flow/Open")
-        st.write("🔵 **Blue pipes**: No flow")
+        st.write("🟢 **Green valves**: Open")
         st.write("🔴 **Red valves**: Closed")
+        st.write("⭐ **Special valves**: Control pressure flow")
         if st.session_state.edit_mode:
             st.write("🗑️ **Edit Mode**: Can add/delete/rename")
         st.write("---")
+        st.info("💡 **Toggle valves** to control pressure flow")
+        st.info("💡 **Special valves** (⭐) must be open for flow")
         st.info("💡 **Enable Calibration** to adjust positions")
-        st.info("💡 **Enable Edit Mode** to manage items")
-        st.info("💡 **Select items** to make them purple")
 
 # ==================== MAIN DISPLAY ====================
 if st.session_state.current_system == "home":
@@ -621,4 +761,4 @@ else:
     run_simulation(st.session_state.current_system)
 
 st.markdown("---")
-st.success("🎯 **Interactive P&ID Simulation** - Now with full editing capabilities! 🎯")
+st.success("🎯 **Interactive P&ID Simulation** - Now with intelligent pressure propagation! 🎯")
