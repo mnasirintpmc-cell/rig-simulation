@@ -10,7 +10,7 @@
     "x": 153,
     "y": 153,
     "state": "Closed",
-        "pipes_mixing.json":[14,6,9]
+        "pipes_mixing.json":[14,6,9,10]
   },
   "v-103": {
     "x": 224,
@@ -22,19 +22,19 @@
     "x": 200,
     "y": 252,
     "state": "Closed",
-    "pipes_mixing.json":[2,3]
+    "pipes_mixing.json":[8]
   },
   "v-105": {
     "x": 265,
     "y": 399,
     "state": "Closed",
-    "pipes_mixing.json":[1,16]
+    "pipes_mixing.json":[4,5,7,17]
   },
   "v-501": {
     "x": 153,
     "y": 246,
     "state": "Closed",
-    "pipes_mixing.json":[1,16]
+    "pipes_mixing.json":[22,3]
   },
   "v-301": {
     "x": 88,
