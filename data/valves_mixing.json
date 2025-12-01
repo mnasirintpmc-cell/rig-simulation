@@ -4,41 +4,48 @@
     "x": 87,
     "y": 153,
     "state": "Closed",
-    "pipes_mixing.json":[1,2,3]
+    "pipes_mixing.json":[1,16]
   },
   "v-102": {
     "x": 153,
     "y": 153,
-    "state": "Closed"
+    "state": "Closed",
+        "pipes_mixing.json":[14,6,9]
   },
   "v-103": {
     "x": 224,
     "y": 153,
-    "state": "Closed"
+    "state": "Closed",
+     "pipes_mixing.json":[7,11,13,15]
   },
   "v-104": {
     "x": 200,
     "y": 252,
-    "state": "Closed"
+    "state": "Closed",
+    "pipes_mixing.json":[2,3]
   },
   "v-105": {
     "x": 265,
     "y": 399,
-    "state": true
+    "state": true,
+    "pipes_mixing.json":[1,16]
   },
   "v-501": {
     "x": 153,
     "y": 246,
-    "state": "Closed"
+    "state": "Closed",
+    "pipes_mixing.json":[1,16]
   },
   "v-301": {
     "x": 88,
     "y": 325,
-    "state": true
+    "state": true,
+    "pipes_mixing.json":[1,16]
   },
   "V-302": {
     "x": 153,
     "y": 325,
-    "state": false
+    "state": false,
+    "pipes_mixing.json":[1,16]
   }
 }
