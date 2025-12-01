@@ -39,13 +39,13 @@
   "v-301": {
     "x": 88,
     "y": 325,
-    "state": true,
+    "state": "Closed",
     "pipes_mixing.json":[1,16]
   },
   "V-302": {
     "x": 153,
     "y": 325,
-    "state": false,
+    "state": "Closed",
     "pipes_mixing.json":[1,16]
   }
 }
