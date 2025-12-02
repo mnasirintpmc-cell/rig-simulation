@@ -16,7 +16,8 @@
     "x": 224,
     "y": 153,
     "state": "Closed",
-     "pipes_mixing.json":[7,11,13,15]
+     "pipes_mixing.json":[7,11,13,15],
+    "pipes_pressure_in.json":[6,7,8,25,26,27,28,29,30,31,32,33,]
   },
   "v-104": {
     "x": 200,
@@ -28,7 +29,8 @@
     "x": 265,
     "y": 399,
     "state": "Closed",
-    "pipes_mixing.json":[4,5,7,17]
+    "pipes_mixing.json":[4,5,7,17],
+    "pipes_pressure_in.json":[6,7,8,25,26,27,28,29,30,31,32,33,]
   },
   "v-501": {
     "x": 153,
