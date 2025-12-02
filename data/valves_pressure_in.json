@@ -2,13 +2,40 @@
   "V-106": {"x": 143, "y": 375,
   "state": "closed",
   "pipes_pressure_in.json":[1]},
-  "V-107": {"x": 236, "y": 375},
-  "V-108": {"x": 76, "y": 375},
-  "V-109": {"x": 347, "y": 375},
-  "V-110": {"x": 438, "y": 375},
-  "V-111": {"x": 522, "y": 375},
-  "V-112": {"x": 387, "y": 425},
-  "V-113": {"x": 522, "y": 425},
-  "V-114": {"x": 134, "y": 455},
-  "V-201": {"x": 112, "y": 145}
+  "V-107": {"x": 236, "y": 375,
+  "state": "closed",
+  "pipes_pressure_in.json":[1]
+  },
+  "V-108": {"x": 76, "y": 375,
+  "state": "closed",
+  "pipes_pressure_in.json":[1]
+  },
+  "V-109": {"x": 347, "y": 375,
+  "state": "closed",
+  "pipes_pressure_in.json":[1]
+  },
+  "V-110": {"x": 438, "y": 375,
+  "state": "closed",
+  "pipes_pressure_in.json":[1]
+  },
+  "V-111": {"x": 522, "y": 375,
+  "state": "closed",
+  "pipes_pressure_in.json":[1]
+  },
+  "V-112": {"x": 387, "y": 425,
+  "state": "closed",
+  "pipes_pressure_in.json":[1]
+  },
+  "V-113": {"x": 522, "y": 425,
+  "state": "closed",
+  "pipes_pressure_in.json":[1]
+  },
+  "V-114": {"x": 134, "y": 455,
+  "state": "closed",
+  "pipes_pressure_in.json":[1]
+  },
+  "V-201": {"x": 112, "y": 145,
+  "state": "closed",
+  "pipes_pressure_in.json":[1]
+  }
 }
