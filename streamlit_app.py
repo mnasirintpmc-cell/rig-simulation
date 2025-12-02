@@ -1,4 +1,4 @@
-# streamlit_app.py - FULL CORRECTED VERSION WITH PROPER PRESSURE PROPAGATION
+# streamlit_app.py - FULL CORRECTED VERSION
 import streamlit as st
 from PIL import Image, ImageDraw
 import json
@@ -79,103 +79,75 @@ def build_network(valves, pipes, system_name):
 # ================== PRESSURE PROPAGATION ==================
 def propagate_pressure(network, pressure_sources):
     pressurized = set()
-    flowing = set()
+    # Only propagate through open valves
+    changed = True
+    while changed:
+        changed = False
+        for node_id, node in network.items():
+            if node["type"]=="pipe":
+                # Pipe is pressurized if any connected valve is open
+                for vtag in node["connected_valves"]:
+                    if network[vtag]["is_open"]:
+                        if node_id not in pressurized:
+                            pressurized.add(node_id)
+                            changed = True
+            elif node["type"]=="valve":
+                # Valve is "pressurized" if any connected pipe is pressurized
+                if node["is_open"]:
+                    for pi in node["connected_pipes"]:
+                        pid = f"pipe_{pi}"
+                        if pid in pressurized and node_id not in pressurized:
+                            pressurized.add(node_id)
+                            changed = True
+    return pressurized
 
-    # Start propagation only through open valves
-    queue = []
-    for src in pressure_sources:
-        pid = f"pipe_{src-1}"  # zero-indexed
-        queue.append(pid)
-
-    while queue:
-        nid = queue.pop(0)
-        if nid in pressurized:
-            continue
-        pressurized.add(nid)
-
-        node = network.get(nid)
-        if not node:
-            continue
-
-        if node["type"] == "pipe":
-            for vtag in node.get("connected_valves", []):
-                vdata = network[vtag]
-                if vdata["is_open"] and vtag not in pressurized:
-                    queue.append(vtag)
-                    flowing.add(vtag)
-        elif node["type"] == "valve":
-            if node["is_open"]:
-                for pi in node.get("connected_pipes", []):
-                    pid = f"pipe_{pi}"
-                    if pid not in pressurized:
-                        queue.append(pid)
-                        flowing.add(pid)
-    return pressurized, flowing
-
-def get_pipe_status(pipe_idx, pressurized_nodes, flowing_nodes):
+def get_pipe_status(pipe_idx, pressurized_nodes):
     pid = f"pipe_{pipe_idx}"
-    return pid in pressurized_nodes, pid in flowing_nodes
+    has_pressure = pid in pressurized_nodes
+    has_flow = has_pressure
+    return has_pressure, has_flow
 
 # ================== RENDER ==================
-def render_pid(valves, pipes, png_path, system_name, pressurized_nodes, flowing_nodes):
+def render_pid(valves, pipes, png_path, system_name, pressurized_nodes):
     try:
         img = Image.open(png_path).convert("RGBA")
     except:
         img = Image.new("RGBA",(800,600),(40,40,60))
     draw = ImageDraw.Draw(img)
 
+    # Pipes
     for i, pipe in enumerate(pipes):
-        hp,hf = get_pipe_status(i, pressurized_nodes, flowing_nodes)
-        if i == st.session_state.selected_pipe:
-            color = (180,0,255)
-            width = 8
-        elif hf:
-            color = (0,255,0)
-            width = 6
-        elif hp:
-            color = (100,180,255)
-            width = 5
-        else:
-            color = (100,100,255)
-            width = 4
+        hp,hf = get_pipe_status(i, pressurized_nodes)
+        color = (180,0,255) if i==st.session_state.selected_pipe else ((0,255,0) if hf else (100,180,255) if hp else (100,100,255))
+        width = 8 if i==st.session_state.selected_pipe else 6 if hf else 5 if hp else 4
         draw.line([(pipe["x1"],pipe["y1"]),(pipe["x2"],pipe["y2"])],fill=color,width=width)
 
-    for tag, vdata in valves.items():
+    # Valves
+    for tag,vdata in valves.items():
         is_open = st.session_state.valve_states.get(tag, False)
         x,y = vdata["x"],vdata["y"]
         radius = 4
-        if tag == st.session_state.selected_valve:
-            fill = (180,0,255)
-        elif is_open:
-            fill = (0,255,0)
-        else:
-            fill = (255,0,0)
+        fill = (180,0,255) if tag==st.session_state.selected_valve else (0,255,0) if is_open else (255,0,0)
         draw.ellipse([x-radius,y-radius,x+radius,y+radius],fill=fill)
         draw.text((x+7,y-9),tag,fill="white")
     return img.convert("RGB")
 
 # ================== RUN SYSTEM ==================
 def run_system(system_name):
-    if not system_name:
-        st.error("Invalid system selected!")
-        return
-
     st.header(f"{system_name.upper()} Simulation")
-
     valves, pipes, png_path = load_system_data(system_name)
     if not valves or not pipes:
         st.error("Missing JSON data")
         return
-
     for tag in valves:
         if tag not in st.session_state.valve_states:
             st.session_state.valve_states[tag] = False
 
     network = build_network(valves, pipes, system_name)
-    pressurized_nodes, flowing_nodes = propagate_pressure(network, get_pressure_config(system_name)["pressure_sources"])
+    pressurized_nodes = propagate_pressure(network, get_pressure_config(system_name)["pressure_sources"])
 
-    pressurized_count = sum(1 for i in range(len(pipes)) if get_pipe_status(i, pressurized_nodes, flowing_nodes)[0])
-    flowing_count = sum(1 for i in range(len(pipes)) if get_pipe_status(i, pressurized_nodes, flowing_nodes)[1])
+    pressurized_count = sum(1 for i in range(len(pipes)) if get_pipe_status(i, pressurized_nodes)[0])
+    flowing_count = sum(1 for i in range(len(pipes)) if get_pipe_status(i, pressurized_nodes)[1])
 
     # Sidebar
     with st.sidebar:
@@ -191,7 +163,7 @@ def run_system(system_name):
 
     col1,col2 = st.columns([3,1])
     with col1:
-        image = render_pid(valves, pipes, png_path, system_name, pressurized_nodes, flowing_nodes)
+        image = render_pid(valves,pipes,png_path,system_name,pressurized_nodes)
         st.image(image,use_container_width=True)
     with col2:
         st.header("Legend")
