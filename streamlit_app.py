@@ -1,4 +1,4 @@
-# streamlit_app.py - FULL CORRECTED VERSION
+# streamlit_app.py - FULL CORRECTED VERSION WITH PROPER PRESSURE PROPAGATION
 import streamlit as st
 from PIL import Image, ImageDraw
 import json
@@ -15,22 +15,6 @@ if 'selected_pipe' not in st.session_state:
     st.session_state.selected_pipe = None
 if 'selected_valve' not in st.session_state:
     st.session_state.selected_valve = None
-if 'calibration_mode' not in st.session_state:
-    st.session_state.calibration_mode = False
-if 'edit_mode' not in st.session_state:
-    st.session_state.edit_mode = False
-if 'temp_valve_x' not in st.session_state:
-    st.session_state.temp_valve_x = 0
-if 'temp_valve_y' not in st.session_state:
-    st.session_state.temp_valve_y = 0
-if 'temp_pipe_x1' not in st.session_state:
-    st.session_state.temp_pipe_x1 = 0
-if 'temp_pipe_y1' not in st.session_state:
-    st.session_state.temp_pipe_y1 = 0
-if 'temp_pipe_x2' not in st.session_state:
-    st.session_state.temp_pipe_x2 = 0
-if 'temp_pipe_y2' not in st.session_state:
-    st.session_state.temp_pipe_y2 = 0
 
 # ================== SYSTEM CONFIG ==================
 def get_pressure_config(system_name):
@@ -72,14 +56,12 @@ def load_system_data(system_name):
 
 # ================== NETWORK BUILD ==================
 def build_network(valves, pipes, system_name):
-    pipe_field = f"pipes_{system_name}"  # system-specific pipes
+    pipe_field = f"pipes_{system_name}"
     network = {}
 
-    # Initialize pipes
     for i, pipe in enumerate(pipes):
-        network[f"pipe_{i}"] = {"type":"pipe","connected_valves":[],"pressurized":False}
+        network[f"pipe_{i}"] = {"type":"pipe","connected_valves":[]}
 
-    # Initialize valves and connect pipes
     for vtag, vdata in valves.items():
         connected_pipes = vdata.get(pipe_field, [])
         network[vtag] = {
@@ -99,38 +81,40 @@ def propagate_pressure(network, pressure_sources):
     pressurized = set()
     flowing = set()
 
-    # Start from pressure sources
+    # Start propagation only through open valves
+    queue = []
     for src in pressure_sources:
         pid = f"pipe_{src-1}"  # zero-indexed
-        pressurized.add(pid)
+        queue.append(pid)
 
-    changed = True
-    while changed:
-        changed = False
-        for nid, node in network.items():
-            if nid in pressurized:
-                if node["type"]=="pipe":
-                    for v in node["connected_valves"]:
-                        vdata = network[v]
-                        if v not in pressurized and (not vdata["is_special"] or vdata["is_open"]):
-                            pressurized.add(v)
-                            if vdata["is_open"]:
-                                flowing.add(v)
-                            changed = True
-                elif node["type"]=="valve" and node["is_open"]:
-                    for pi in node["connected_pipes"]:
-                        pid = f"pipe_{pi}"
-                        if pid not in pressurized:
-                            pressurized.add(pid)
-                            flowing.add(pid)
-                            changed = True
+    while queue:
+        nid = queue.pop(0)
+        if nid in pressurized:
+            continue
+        pressurized.add(nid)
+
+        node = network.get(nid)
+        if not node:
+            continue
+
+        if node["type"] == "pipe":
+            for vtag in node.get("connected_valves", []):
+                vdata = network[vtag]
+                if vdata["is_open"] and vtag not in pressurized:
+                    queue.append(vtag)
+                    flowing.add(vtag)
+        elif node["type"] == "valve":
+            if node["is_open"]:
+                for pi in node.get("connected_pipes", []):
+                    pid = f"pipe_{pi}"
+                    if pid not in pressurized:
+                        queue.append(pid)
+                        flowing.add(pid)
     return pressurized, flowing
 
 def get_pipe_status(pipe_idx, pressurized_nodes, flowing_nodes):
     pid = f"pipe_{pipe_idx}"
-    has_pressure = pid in pressurized_nodes
-    has_flow = pid in flowing_nodes
-    return has_pressure, has_flow
+    return pid in pressurized_nodes, pid in flowing_nodes
 
 # ================== RENDER ==================
 def render_pid(valves, pipes, png_path, system_name, pressurized_nodes, flowing_nodes):
@@ -140,10 +124,9 @@ def render_pid(valves, pipes, png_path, system_name, pressurized_nodes, flowing_
         img = Image.new("RGBA",(800,600),(40,40,60))
     draw = ImageDraw.Draw(img)
 
-    # Pipes
     for i, pipe in enumerate(pipes):
         hp,hf = get_pipe_status(i, pressurized_nodes, flowing_nodes)
-        if i==st.session_state.selected_pipe:
+        if i == st.session_state.selected_pipe:
             color = (180,0,255)
             width = 8
         elif hf:
@@ -157,12 +140,11 @@ def render_pid(valves, pipes, png_path, system_name, pressurized_nodes, flowing_
             width = 4
         draw.line([(pipe["x1"],pipe["y1"]),(pipe["x2"],pipe["y2"])],fill=color,width=width)
 
-    # Valves
-    for tag,vdata in valves.items():
+    for tag, vdata in valves.items():
         is_open = st.session_state.valve_states.get(tag, False)
         x,y = vdata["x"],vdata["y"]
         radius = 4
-        if tag==st.session_state.selected_valve:
+        if tag == st.session_state.selected_valve:
             fill = (180,0,255)
         elif is_open:
             fill = (0,255,0)
@@ -178,8 +160,7 @@ def run_system(system_name):
         st.error("Invalid system selected!")
         return
 
-    display_name = system_name.capitalize()
-    st.header(f"{display_name} Simulation")
+    st.header(f"{system_name.upper()} Simulation")
 
     valves, pipes, png_path = load_system_data(system_name)
     if not valves or not pipes:
@@ -208,10 +189,9 @@ def run_system(system_name):
         st.metric("Pressurized Pipes",pressurized_count)
         st.metric("Flowing Pipes",flowing_count)
 
-    # Layout
     col1,col2 = st.columns([3,1])
     with col1:
-        image = render_pid(valves,pipes,png_path,system_name,pressurized_nodes, flowing_nodes)
+        image = render_pid(valves, pipes, png_path, system_name, pressurized_nodes, flowing_nodes)
         st.image(image,use_container_width=True)
     with col2:
         st.header("Legend")
