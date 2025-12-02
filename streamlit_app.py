@@ -1,8 +1,9 @@
-# streamlit_app.py - FULL CORRECTED VERSION
+# streamlit_app.py - FULL CORRECTED VERSION WITH FLOW
 import streamlit as st
 from PIL import Image, ImageDraw
 import json
 import os
+from collections import deque
 
 st.set_page_config(page_title="Rig Simulation Dashboard", page_icon="🏭", layout="wide")
 
@@ -76,39 +77,54 @@ def build_network(valves, pipes, system_name):
                 network[pid]["connected_valves"].append(vtag)
     return network
 
-# ================== PRESSURE PROPAGATION ==================
-def propagate_pressure(network, pressure_sources):
+# ================== PRESSURE & FLOW PROPAGATION ==================
+def propagate_pressure_and_flow(network, pressure_sources):
     pressurized = set()
-    # Only propagate through open valves
-    changed = True
-    while changed:
-        changed = False
-        for node_id, node in network.items():
-            if node["type"]=="pipe":
-                # Pipe is pressurized if any connected valve is open
-                for vtag in node["connected_valves"]:
-                    if network[vtag]["is_open"]:
-                        if node_id not in pressurized:
-                            pressurized.add(node_id)
-                            changed = True
-            elif node["type"]=="valve":
-                # Valve is "pressurized" if any connected pipe is pressurized
-                if node["is_open"]:
-                    for pi in node["connected_pipes"]:
-                        pid = f"pipe_{pi}"
-                        if pid in pressurized and node_id not in pressurized:
-                            pressurized.add(node_id)
-                            changed = True
-    return pressurized
+    flowing = set()
+    visited = set()
 
-def get_pipe_status(pipe_idx, pressurized_nodes):
+    queue = deque()
+    # Start from pressure sources
+    for src in pressure_sources:
+        pid = f"pipe_{src-1}"  # 0-indexed
+        queue.append(pid)
+        pressurized.add(pid)
+
+    while queue:
+        node_id = queue.popleft()
+        if node_id in visited:
+            continue
+        visited.add(node_id)
+        node = network[node_id]
+
+        if node["type"]=="pipe":
+            # Pipe is flowing only if connected valve is open
+            for vtag in node["connected_valves"]:
+                valve = network[vtag]
+                if valve["is_open"]:
+                    flowing.add(node_id)
+                    if vtag not in pressurized:
+                        pressurized.add(vtag)
+                        queue.append(vtag)
+        elif node["type"]=="valve":
+            # Propagate flow from valve to connected pipes
+            if node["is_open"]:
+                for pi in node["connected_pipes"]:
+                    pid = f"pipe_{pi}"
+                    if pid not in pressurized:
+                        pressurized.add(pid)
+                        queue.append(pid)
+
+    return pressurized, flowing
+
+def get_pipe_status(pipe_idx, pressurized_nodes, flowing_nodes):
     pid = f"pipe_{pipe_idx}"
     has_pressure = pid in pressurized_nodes
-    has_flow = has_pressure
+    has_flow = pid in flowing_nodes
     return has_pressure, has_flow
 
 # ================== RENDER ==================
-def render_pid(valves, pipes, png_path, system_name, pressurized_nodes):
+def render_pid(valves, pipes, png_path, system_name, pressurized_nodes, flowing_nodes):
     try:
         img = Image.open(png_path).convert("RGBA")
     except:
@@ -117,7 +133,7 @@ def render_pid(valves, pipes, png_path, system_name, pressurized_nodes):
 
     # Pipes
     for i, pipe in enumerate(pipes):
-        hp,hf = get_pipe_status(i, pressurized_nodes)
+        hp,hf = get_pipe_status(i, pressurized_nodes, flowing_nodes)
         color = (180,0,255) if i==st.session_state.selected_pipe else ((0,255,0) if hf else (100,180,255) if hp else (100,100,255))
         width = 8 if i==st.session_state.selected_pipe else 6 if hf else 5 if hp else 4
         draw.line([(pipe["x1"],pipe["y1"]),(pipe["x2"],pipe["y2"])],fill=color,width=width)
@@ -144,10 +160,10 @@ def run_system(system_name):
             st.session_state.valve_states[tag] = False
 
     network = build_network(valves, pipes, system_name)
-    pressurized_nodes = propagate_pressure(network, get_pressure_config(system_name)["pressure_sources"])
+    pressurized_nodes, flowing_nodes = propagate_pressure_and_flow(network, get_pressure_config(system_name)["pressure_sources"])
 
-    pressurized_count = sum(1 for i in range(len(pipes)) if get_pipe_status(i, pressurized_nodes)[0])
-    flowing_count = sum(1 for i in range(len(pipes)) if get_pipe_status(i, pressurized_nodes)[1])
+    pressurized_count = sum(1 for i in range(len(pipes)) if get_pipe_status(i, pressurized_nodes, flowing_nodes)[0])
+    flowing_count = sum(1 for i in range(len(pipes)) if get_pipe_status(i, pressurized_nodes, flowing_nodes)[1])
 
     # Sidebar
     with st.sidebar:
@@ -163,7 +179,7 @@ def run_system(system_name):
 
     col1,col2 = st.columns([3,1])
     with col1:
-        image = render_pid(valves,pipes,png_path,system_name,pressurized_nodes)
+        image = render_pid(valves,pipes,png_path,system_name,pressurized_nodes, flowing_nodes)
         st.image(image,use_container_width=True)
     with col2:
         st.header("Legend")
