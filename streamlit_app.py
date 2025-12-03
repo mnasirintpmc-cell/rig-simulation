@@ -1,4 +1,4 @@
-# streamlit_app.py - COMPLETE 5-SYSTEM RIG SIMULATION
+# streamlit_app.py - FIXED VALVE-TO-PIPE TOGGLING
 import streamlit as st
 from PIL import Image, ImageDraw
 import json
@@ -15,8 +15,8 @@ if 'current_system' not in st.session_state:
     st.session_state.current_system = "home"
 if 'valve_states' not in st.session_state:
     st.session_state.valve_states = {}
-if 'system_pressure_sources' not in st.session_state:
-    st.session_state.system_pressure_sources = {}
+if 'active_pipes' not in st.session_state:
+    st.session_state.active_pipes = set()
 
 # ==================== SYSTEM CONFIGURATION ====================
 SYSTEM_CONFIG = {
@@ -25,40 +25,35 @@ SYSTEM_CONFIG = {
         "valves_file": "data/valves_mixing.json",
         "pipes_file": "data/pipes_mixing.json", 
         "image_file": "assets/p&id_mixing.png",
-        "pressure_sources": [1, 5],
-        "default_valves": ["V-101", "V-102", "V-103", "V-104", "V-105"]
+        "pressure_sources": [1, 5]
     },
     "supply": {
         "display_name": "Pressure Supply",
         "valves_file": "data/valves_pressure_in.json",
         "pipes_file": "data/pipes_pressure_in.json",
         "image_file": "assets/p&id_pressure_in.png",
-        "pressure_sources": [1, 3, 7],
-        "default_valves": ["V-201", "V-202", "V-203", "V-204", "V-205"]
+        "pressure_sources": [1, 3, 7]
     },
     "dgs": {
         "display_name": "DGS Simulation",
         "valves_file": "data/valves_dgs.json",
         "pipes_file": "data/pipes_dgs.json",
         "image_file": "assets/p&id_dgs.png",
-        "pressure_sources": [1, 6, 11],
-        "default_valves": ["V-301", "V-302", "V-303", "V-304", "V-305"]
+        "pressure_sources": [1, 6, 11]
     },
     "return": {
         "display_name": "Pressure Return",
         "valves_file": "data/valves_pressure_return.json",
         "pipes_file": "data/pipes_pressure_return.json",
         "image_file": "assets/p&id_pressure_return.png",
-        "pressure_sources": [2, 8],
-        "default_valves": ["V-401", "V-402", "V-403", "V-404", "V-405"]
+        "pressure_sources": [2, 8]
     },
     "seal": {
         "display_name": "Separation Seal",
         "valves_file": "data/valves_separation_seal.json",
         "pipes_file": "data/pipes_separation_seal.json",
         "image_file": "assets/p&id_separation_seal.png",
-        "pressure_sources": [1, 4, 9],
-        "default_valves": ["V-501", "V-502", "V-503", "V-504", "V-505"]
+        "pressure_sources": [1, 4, 9]
     }
 }
 
@@ -77,13 +72,14 @@ def load_system_data(system_name):
         try:
             with open(valves_file, 'r') as f:
                 valves = json.load(f)
-        except:
-            st.sidebar.error(f"Failed to load {valves_file}")
+                # Ensure each valve has connected_pipes field
+                for tag, data in valves.items():
+                    if "connected_pipes" not in data:
+                        data["connected_pipes"] = []
+        except Exception as e:
+            st.sidebar.error(f"Failed to load {valves_file}: {e}")
     else:
         st.sidebar.warning(f"Missing: {valves_file}")
-        # Create sample valves
-        for v in config["default_valves"]:
-            valves[v] = {"x": 100, "y": 100, "connected_pipes": [1, 2, 3]}
     
     # Load pipes
     pipes_file = config["pipes_file"]
@@ -91,16 +87,10 @@ def load_system_data(system_name):
         try:
             with open(pipes_file, 'r') as f:
                 pipes = json.load(f)
-        except:
-            st.sidebar.error(f"Failed to load {pipes_file}")
+        except Exception as e:
+            st.sidebar.error(f"Failed to load {pipes_file}: {e}")
     else:
         st.sidebar.warning(f"Missing: {pipes_file}")
-        # Create sample pipes
-        pipes = [
-            {"x1": 50, "y1": 50, "x2": 150, "y2": 50},
-            {"x1": 150, "y1": 50, "x2": 150, "y2": 150},
-            {"x1": 150, "y1": 150, "x2": 250, "y2": 150}
-        ]
     
     # Load image
     image_file = config["image_file"]
@@ -111,45 +101,49 @@ def load_system_data(system_name):
     
     return valves, pipes, image
 
-# ==================== PRESSURE & FLOW LOGIC ====================
-def get_pipe_status(pipe_idx, valves, valve_states, pressure_sources):
+# ==================== CORE TOGGLE LOGIC ====================
+def update_active_pipes(system_name, valves):
     """
-    Determine if a pipe is:
-    - FLOWING (green): Connected to an open valve AND has pressure
-    - PRESSURIZED (blue): Is a pressure source or connected to one
-    - INACTIVE (gray): Neither
+    Update which pipes are active based on which valves are open.
+    A pipe is active if ANY valve that controls it is open.
     """
-    pipe_num = pipe_idx + 1
+    active = set()
     
-    # Check if pipe is a pressure source
-    if pipe_num in pressure_sources:
-        # Check if any valve controlling this pipe is open
-        for valve_tag, valve_data in valves.items():
-            if valve_states.get(valve_tag, False):
-                connected = valve_data.get("connected_pipes", [])
-                if pipe_num in connected or pipe_idx in connected:
-                    return "flowing"  # Has pressure AND valve open
-        return "pressurized"  # Has pressure but no valve open
-    
-    # Check if pipe is connected to an open valve
     for valve_tag, valve_data in valves.items():
-        if valve_states.get(valve_tag, False):
-            connected = valve_data.get("connected_pipes", [])
-            if pipe_num in connected or pipe_idx in connected:
-                # Check if this pipe gets pressure from upstream
-                # For simplicity, if valve is open and pipe is connected, it flows
-                return "flowing"
+        if st.session_state.valve_states.get(valve_tag, False):  # Valve is OPEN
+            connected_pipes = valve_data.get("connected_pipes", [])
+            # Add all pipes this valve controls
+            for pipe_ref in connected_pipes:
+                # Handle both 0-based and 1-based indexing
+                if isinstance(pipe_ref, int):
+                    # If pipe numbers are 1-based in JSON, convert to 0-based
+                    pipe_idx = pipe_ref - 1 if pipe_ref > 0 else pipe_ref
+                    if isinstance(pipe_idx, int):
+                        active.add(pipe_idx)
     
-    return "inactive"
+    # Store per system
+    st.session_state.active_pipes = active
+    return active
 
-def get_pipe_color(status):
-    """Return RGB color based on pipe status"""
-    colors = {
-        "flowing": (0, 255, 0),      # Green
-        "pressurized": (100, 200, 255),  # Light Blue
-        "inactive": (80, 80, 100)    # Dark Gray
-    }
-    return colors.get(status, (80, 80, 100))
+def get_pipe_color(pipe_idx, system_name, valves, pipes):
+    """
+    Determine pipe color:
+    - GREEN: Pipe is controlled by an OPEN valve (in active_pipes set)
+    - BLUE: Pipe is a pressure source (but no open valve controls it)
+    - GRAY: Inactive
+    """
+    # Check if this pipe is controlled by any open valve
+    if pipe_idx in st.session_state.active_pipes:
+        return (0, 255, 0)  # GREEN - valve is open for this pipe
+    
+    # Check if it's a pressure source
+    pressure_sources = SYSTEM_CONFIG[system_name]["pressure_sources"]
+    pipe_num = pipe_idx + 1  # Convert to 1-based for comparison
+    
+    if pipe_num in pressure_sources:
+        return (100, 200, 255)  # LIGHT BLUE - pressure source
+    
+    return (80, 80, 100)  # GRAY - inactive
 
 # ==================== RENDERING ====================
 def render_system(valves, pipes, image_path, system_name):
@@ -164,15 +158,22 @@ def render_system(valves, pipes, image_path, system_name):
         draw.text((100, 100), f"{system_name.upper()} SYSTEM", fill="white", size=30)
     
     draw = ImageDraw.Draw(img)
-    pressure_sources = SYSTEM_CONFIG[system_name]["pressure_sources"]
+    
+    # Update active pipes based on current valve states
+    active_pipes = update_active_pipes(system_name, valves)
     
     # Draw pipes
     for i, pipe in enumerate(pipes):
-        status = get_pipe_status(i, valves, st.session_state.valve_states, pressure_sources)
-        color = get_pipe_color(status)
-        width = 6 if status == "flowing" else 4
+        color = get_pipe_color(i, system_name, valves, pipes)
+        width = 8 if i in active_pipes else 4
         draw.line([(pipe["x1"], pipe["y1"]), (pipe["x2"], pipe["y2"])], 
                   fill=color, width=width)
+        
+        # Draw pipe number (for debugging)
+        mid_x = (pipe["x1"] + pipe["x2"]) // 2
+        mid_y = (pipe["y1"] + pipe["y2"]) // 2
+        if i in active_pipes:
+            draw.text((mid_x, mid_y), str(i+1), fill="white", stroke_fill="black")
     
     # Draw valves
     for tag, valve_data in valves.items():
@@ -183,14 +184,14 @@ def render_system(valves, pipes, image_path, system_name):
         valve_color = (0, 255, 0) if is_open else (255, 0, 0)
         
         # Draw valve circle
-        radius = 10
+        radius = 12 if is_open else 10
         draw.ellipse([x-radius, y-radius, x+radius, y+radius], 
                     fill=valve_color, outline="white", width=2)
         
-        # Show connected pipes count
+        # Show connected pipes count inside valve
         connected = valve_data.get("connected_pipes", [])
         if connected:
-            draw.text((x-5, y-8), str(len(connected)), 
+            draw.text((x-6, y-8), str(len(connected)), 
                      fill="white", stroke_fill="black", stroke_width=1)
         
         # Valve label
@@ -202,7 +203,7 @@ def render_system(valves, pipes, image_path, system_name):
 # ==================== HOME PAGE ====================
 def show_home_page():
     st.title("🏭 Rig Simulation Dashboard")
-    st.markdown("### Select a system to visualize and control valves")
+    st.markdown("### Click a system to control valves and see connected pipes toggle")
     
     # System cards
     cols = st.columns(5)
@@ -218,57 +219,46 @@ def show_home_page():
         with cols[idx]:
             if st.button(f"{icon}\n\n**{name}**", 
                         use_container_width=True, 
-                        key=f"home_{sys_id}"):
+                        key=f"home_{sys_id}",
+                        help=f"Open {name} system"):
                 st.session_state.current_system = sys_id
                 st.rerun()
     
     st.markdown("---")
     
-    # System status table
-    st.subheader("📊 System Status")
+    # Quick system info
+    st.subheader("📋 System Overview")
     
-    status_data = []
     for sys_id, config in SYSTEM_CONFIG.items():
-        # Check file existence
-        valves_exist = os.path.exists(config["valves_file"])
-        pipes_exist = os.path.exists(config["pipes_file"])
-        image_exist = os.path.exists(config["image_file"])
-        
-        status = "✅ Ready" if all([valves_exist, pipes_exist, image_exist]) else "⚠️ Missing Files"
-        
-        # Count valves in file
-        valve_count = 0
-        if valves_exist:
-            try:
-                with open(config["valves_file"], 'r') as f:
-                    valves = json.load(f)
-                    valve_count = len(valves)
-            except:
-                valve_count = 0
-        
-        status_data.append({
-            "System": config["display_name"],
-            "Status": status,
-            "Valves": valve_count,
-            "Files": f"{'✅' if valves_exist else '❌'} Valves | {'✅' if pipes_exist else '❌'} Pipes | {'✅' if image_exist else '❌'} Image"
-        })
-    
-    # Display as metrics
-    col1, col2, col3, col4, col5 = st.columns(5)
-    for idx, (sys_id, config) in enumerate(SYSTEM_CONFIG.items()):
-        col = [col1, col2, col3, col4, col5][idx]
-        with col:
+        with st.expander(f"{config['display_name']} System"):
             valves_exist = os.path.exists(config["valves_file"])
+            pipes_exist = os.path.exists(config["pipes_file"])
+            
             if valves_exist:
                 try:
                     with open(config["valves_file"], 'r') as f:
                         valves = json.load(f)
                         valve_count = len(valves)
-                        col.metric(config["display_name"], f"{valve_count} valves")
+                        
+                        # Count total connected pipes
+                        total_connections = 0
+                        valve_connections = []
+                        for tag, data in valves.items():
+                            conn = data.get("connected_pipes", [])
+                            total_connections += len(conn)
+                            if conn:
+                                valve_connections.append(f"{tag}: {len(conn)} pipes")
+                        
+                        st.write(f"**{valve_count} valves**")
+                        st.write(f"**{total_connections} pipe connections**")
+                        if valve_connections:
+                            st.write("**Valve connections:**")
+                            for vc in valve_connections:
+                                st.write(f"- {vc}")
                 except:
-                    col.metric(config["display_name"], "Error")
+                    st.write("Could not load valve data")
             else:
-                col.metric(config["display_name"], "No file")
+                st.write("❌ Valve file not found")
 
 # ==================== SYSTEM PAGE ====================
 def show_system_page(system_name):
@@ -277,198 +267,215 @@ def show_system_page(system_name):
     # Load system data
     valves, pipes, image_path = load_system_data(system_name)
     
-    # Initialize valve states
+    # Initialize valve states if not exists
     for tag in valves:
         if tag not in st.session_state.valve_states:
             st.session_state.valve_states[tag] = False
     
-    # Header with back button
-    col_title, col_back = st.columns([4, 1])
-    with col_title:
-        st.title(f"{config['display_name']} System")
-    with col_back:
-        if st.button("🏠 Back to Home"):
-            st.session_state.current_system = "home"
-            st.rerun()
+    # Update active pipes
+    active_pipes = update_active_pipes(system_name, valves)
+    
+    # Header
+    st.title(f"{config['display_name']} System")
+    
+    # Back button
+    if st.button("← Back to Home", key="back_home"):
+        st.session_state.current_system = "home"
+        st.rerun()
+    
+    st.markdown("---")
     
     # Main layout
     col_main, col_sidebar = st.columns([3, 1])
     
     with col_sidebar:
         st.header("🎛️ Valve Controls")
+        st.markdown("Click valves to toggle them ON/OFF")
         
-        # Valve toggles
+        # Valve toggles - SIMPLIFIED FIXED VERSION
         for tag, valve_data in valves.items():
             is_open = st.session_state.valve_states.get(tag, False)
-            connected_pipes = valve_data.get("connected_pipes", [])
+            connected = valve_data.get("connected_pipes", [])
             
-            # Button label
-            status_icon = "🟢" if is_open else "🔴"
-            pipe_info = f" → Pipes: {connected_pipes}" if connected_pipes else ""
-            button_label = f"{status_icon} {tag}{pipe_info}"
+            # Create toggle button
+            if is_open:
+                button_text = f"🟢 **{tag}** - OPEN"
+                button_help = f"Controls pipes: {connected}"
+            else:
+                button_text = f"🔴 **{tag}** - CLOSED"
+                button_help = f"Controls pipes: {connected}"
             
-            if st.button(button_label, key=f"valve_{tag}", use_container_width=True):
+            if st.button(button_text, 
+                        key=f"toggle_{system_name}_{tag}",
+                        help=button_help,
+                        use_container_width=True):
+                # Toggle the valve
                 st.session_state.valve_states[tag] = not is_open
+                # Immediately update active pipes
+                update_active_pipes(system_name, valves)
                 st.rerun()
+            
+            # Show connected pipes below each valve
+            if connected:
+                pipe_nums = [p+1 if isinstance(p, int) and p >= 0 else p for p in connected]
+                st.caption(f"→ Pipes: {pipe_nums}")
         
         st.markdown("---")
-        st.header("📊 System Stats")
+        st.header("📊 Live Stats")
         
         # Calculate stats
         open_valves = sum(1 for tag in valves if st.session_state.valve_states.get(tag, False))
-        total_valves = len(valves)
+        active_pipe_count = len(active_pipes)
+        pressure_source_count = len([i for i in range(len(pipes)) 
+                                     if (i+1) in config["pressure_sources"]])
         
-        flowing_pipes = 0
-        pressurized_pipes = 0
-        for i in range(len(pipes)):
-            status = get_pipe_status(i, valves, st.session_state.valve_states, config["pressure_sources"])
-            if status == "flowing":
-                flowing_pipes += 1
-            elif status == "pressurized":
-                pressurized_pipes += 1
-        
-        st.metric("Open Valves", f"{open_valves}/{total_valves}")
-        st.metric("Flowing Pipes", flowing_pipes)
-        st.metric("Pressurized Pipes", pressurized_pipes)
+        st.metric("Open Valves", f"{open_valves}/{len(valves)}")
+        st.metric("Active Pipes", active_pipe_count)
+        st.metric("Pressure Sources", pressure_source_count)
         st.metric("Total Pipes", len(pipes))
         
-        # Control buttons
         st.markdown("---")
-        st.header("⚙️ Controls")
+        st.header("⚙️ Quick Controls")
         
-        col_reset, col_test = st.columns(2)
-        with col_reset:
-            if st.button("🔴 Close All", use_container_width=True):
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("🔴 Close All", use_container_width=True, key="close_all"):
                 for tag in valves:
                     st.session_state.valve_states[tag] = False
+                update_active_pipes(system_name, valves)
                 st.rerun()
         
-        with col_test:
-            if st.button("🟢 Open All", use_container_width=True):
+        with col2:
+            if st.button("🟢 Open All", use_container_width=True, key="open_all"):
                 for tag in valves:
                     st.session_state.valve_states[tag] = True
+                update_active_pipes(system_name, valves)
                 st.rerun()
         
-        # Pressure sources info
+        # Test patterns
         st.markdown("---")
-        st.header("💡 Info")
-        st.write(f"**Pressure Sources:** Pipes {config['pressure_sources']}")
-        st.write("**Legend:**")
-        st.write("🟢 Green pipe = Flowing (valve open + pressure)")
-        st.write("🔵 Blue pipe = Pressurized (no valve open)")
-        st.write("⚫ Gray pipe = Inactive")
-        st.write("🟢 Green valve = Open")
-        st.write("🔴 Red valve = Closed")
+        st.header("🌀 Test Patterns")
         
-        # File info
+        if st.button("Pattern A: Open First 3", use_container_width=True):
+            valve_list = list(valves.keys())
+            for i, tag in enumerate(valve_list):
+                st.session_state.valve_states[tag] = (i < 3)
+            update_active_pipes(system_name, valves)
+            st.rerun()
+        
+        if st.button("Pattern B: Open Alternating", use_container_width=True):
+            valve_list = list(valves.keys())
+            for i, tag in enumerate(valve_list):
+                st.session_state.valve_states[tag] = (i % 2 == 0)
+            update_active_pipes(system_name, valves)
+            st.rerun()
+        
         st.markdown("---")
-        st.header("📁 Files")
-        st.write(f"**Valves:** {os.path.basename(config['valves_file'])}")
-        st.write(f"**Pipes:** {os.path.basename(config['pipes_file'])}")
-        st.write(f"**Image:** {os.path.basename(config['image_file'])}")
+        st.header("🎯 Legend")
+        st.write("🟢 **Green pipe** = Controlled by OPEN valve")
+        st.write("🔵 **Blue pipe** = Pressure source")
+        st.write("⚫ **Gray pipe** = Inactive")
+        st.write("🟢 **Green valve** = OPEN")
+        st.write("🔴 **Red valve** = CLOSED")
+        st.write("📝 **Number on valve** = How many pipes it controls")
     
     with col_main:
         # Render and display
         if image_path:
             rendered_img = render_system(valves, pipes, image_path, system_name)
             st.image(rendered_img, use_container_width=True,
-                    caption=f"{config['display_name']} - Real-time Valve Control")
+                    caption=f"{config['display_name']} - Green pipes = controlled by open valves")
         else:
             st.error("⚠️ P&ID image not found")
             st.info(f"Expected at: {config['image_file']}")
         
-        # Valve connections table
+        # Active pipes display
         st.markdown("---")
-        st.subheader("🔗 Valve Connections")
+        st.subheader("🔗 Active Pipe Connections")
         
-        connection_data = []
-        for tag, valve_data in valves.items():
-            is_open = st.session_state.valve_states.get(tag, False)
-            connected = valve_data.get("connected_pipes", [])
+        if active_pipes:
+            st.success(f"✅ **{len(active_pipes)} pipes are active** (controlled by open valves)")
             
-            # Count active pipes from this valve
-            active_from_this = 0
-            if is_open:
-                for pipe_ref in connected:
-                    pipe_idx = pipe_ref - 1 if isinstance(pipe_ref, int) and pipe_ref > 0 else pipe_ref
-                    if isinstance(pipe_idx, int) and 0 <= pipe_idx < len(pipes):
-                        status = get_pipe_status(pipe_idx, valves, st.session_state.valve_states, config["pressure_sources"])
-                        if status == "flowing":
-                            active_from_this += 1
+            # Show which valves control which active pipes
+            for valve_tag, valve_data in valves.items():
+                if st.session_state.valve_states.get(valve_tag, False):
+                    connected = valve_data.get("connected_pipes", [])
+                    active_from_valve = [p for p in connected if p in active_pipes]
+                    if active_from_valve:
+                        # Convert to 1-based for display
+                        pipe_nums = [p+1 if isinstance(p, int) and p >= 0 else p for p in active_from_valve]
+                        st.write(f"🟢 **{valve_tag}** → Pipes: {pipe_nums}")
+        else:
+            st.info("ℹ️ No pipes are active. Open valves to activate their connected pipes.")
+        
+        # Pipe details table
+        st.markdown("---")
+        st.subheader("📋 Pipe Status")
+        
+        pipe_data = []
+        for i in range(len(pipes)):
+            pipe_num = i + 1
+            is_active = i in active_pipes
+            is_pressure = pipe_num in config["pressure_sources"]
             
-            connection_data.append({
-                "Valve": tag,
-                "Status": "🟢 OPEN" if is_open else "🔴 CLOSED",
-                "Connected Pipes": str(connected),
-                "Active Pipes": active_from_this
+            # Find which valves control this pipe
+            controlling_valves = []
+            for valve_tag, valve_data in valves.items():
+                connected = valve_data.get("connected_pipes", [])
+                if i in connected:
+                    controlling_valves.append(valve_tag)
+            
+            status = "🟢 ACTIVE" if is_active else "⚫ INACTIVE"
+            if is_pressure:
+                status = "🔵 PRESSURE"
+            
+            pipe_data.append({
+                "Pipe": pipe_num,
+                "Status": status,
+                "Controlled by": ", ".join(controlling_valves) if controlling_valves else "None"
             })
         
-        # Display as table
-        for conn in connection_data:
-            cols = st.columns([1, 1, 2, 1])
-            cols[0].write(f"**{conn['Valve']}**")
-            cols[1].write(conn['Status'])
-            cols[2].write(conn['Connected Pipes'])
-            cols[3].write(f"🔧 {conn['Active Pipes']}")
-        
-        # Quick actions
-        st.markdown("---")
-        st.subheader("🚀 Quick Actions")
-        
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            if st.button("🌀 Test Flow Pattern 1", use_container_width=True):
-                # Open first 2 valves
-                valve_list = list(valves.keys())
-                for i, tag in enumerate(valve_list):
-                    st.session_state.valve_states[tag] = (i < 2)
-                st.rerun()
-        
-        with col2:
-            if st.button("🌀 Test Flow Pattern 2", use_container_width=True):
-                # Open every other valve
-                valve_list = list(valves.keys())
-                for i, tag in enumerate(valve_list):
-                    st.session_state.valve_states[tag] = (i % 2 == 0)
-                st.rerun()
-        
-        with col3:
-            if st.button("📊 Export Status", use_container_width=True):
-                # Create status report
-                report = {
-                    "system": system_name,
-                    "timestamp": st.session_state.get("_last_update", "N/A"),
-                    "valve_states": st.session_state.valve_states,
-                    "stats": {
-                        "open_valves": open_valves,
-                        "flowing_pipes": flowing_pipes,
-                        "pressurized_pipes": pressurized_pipes
-                    }
-                }
-                st.download_button(
-                    label="⬇️ Download JSON",
-                    data=json.dumps(report, indent=2),
-                    file_name=f"{system_name}_status.json",
-                    mime="application/json"
-                )
+        # Display pipe table
+        for pipe in pipe_data:
+            cols = st.columns([1, 1, 2])
+            cols[0].metric("", f"Pipe {pipe['Pipe']}")
+            cols[1].write(pipe['Status'])
+            cols[2].write(pipe['Controlled by'])
 
 # ==================== MAIN APP ====================
-# Navigation
-st.sidebar.title("🏭 Rig Simulation")
+# Sidebar navigation
+st.sidebar.title("🏭 Navigation")
 
-# System selector in sidebar
-st.sidebar.header("📁 Systems")
+# System selector
+st.sidebar.header("📁 Select System")
 for sys_id, config in SYSTEM_CONFIG.items():
-    if st.sidebar.button(config["display_name"], key=f"sidebar_{sys_id}", use_container_width=True):
+    if st.sidebar.button(config["display_name"], 
+                        key=f"nav_{sys_id}",
+                        use_container_width=True):
         st.session_state.current_system = sys_id
         st.rerun()
 
 st.sidebar.markdown("---")
-st.sidebar.header("ℹ️ About")
-st.sidebar.info(
-    "This simulator shows real-time pipe flow based on valve states. "
-    "Toggle valves to control which pipes are active."
-)
+st.sidebar.header("ℹ️ How It Works")
+st.sidebar.info("""
+**Valve Toggle Logic:**
+1. Each valve in the JSON has a `"connected_pipes"` list
+2. When you OPEN a valve → ALL pipes in its list turn GREEN
+3. When you CLOSE a valve → Those pipes turn GRAY
+4. Multiple valves can control the same pipe
+""")
+
+st.sidebar.markdown("---")
+st.sidebar.header("🔧 JSON Format")
+st.sidebar.code("""
+{
+  "V-101": {
+    "x": 100,
+    "y": 200,
+    "connected_pipes": [1, 2, 3]  // Pipe numbers (1-based)
+  }
+}
+""")
 
 # Show appropriate page
 if st.session_state.current_system == "home":
@@ -478,4 +485,4 @@ else:
 
 # Footer
 st.markdown("---")
-st.caption("🏭 Rig Simulation v2.0 | Valve-to-Pipe Toggle System | All 5 Systems Integrated")
+st.caption("🏭 Rig Simulation v2.1 | Valve-to-Pipe Toggle System | Click valves to see connected pipes turn GREEN")
