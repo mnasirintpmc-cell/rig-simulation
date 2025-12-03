@@ -2,6 +2,8 @@ import streamlit as st
 from PIL import Image, ImageDraw
 import json
 import math
+import os
+import sys
 
 st.set_page_config(layout="wide", page_title="Rig Simulation")
 
@@ -12,31 +14,113 @@ VALVES_FILE = "valves_pressure_return.json"
 PIPES_FILE = "pipes_pressure_return.json"               
 PRESSURE_SOURCES = [2, 8]
 
-# ===================== LOAD DATA =====================
+# ===================== DEBUG: SHOW CURRENT DIRECTORY =====================
+st.sidebar.markdown("### Debug Info")
+current_dir = os.getcwd()
+st.sidebar.write(f"Current dir: `{current_dir}`")
+
+# List files in current directory
+try:
+    files = os.listdir(current_dir)
+    st.sidebar.write("Files in dir:", ", ".join(files[:10]) + ("..." if len(files) > 10 else ""))
+except:
+    st.sidebar.write("Cannot list directory")
+
+# ===================== LOAD DATA WITH BETTER ERROR HANDLING =====================
 def load_valves():
     try:
+        # Check if file exists
+        if not os.path.exists(VALVES_FILE):
+            # Try alternative paths
+            alt_paths = [
+                VALVES_FILE,
+                f"data/{VALVES_FILE}",
+                f"../{VALVES_FILE}",
+                f"./data/{VALVES_FILE}",
+                f"../data/{VALVES_FILE}"
+            ]
+            
+            for path in alt_paths:
+                if os.path.exists(path):
+                    st.sidebar.success(f"Found valves at: {path}")
+                    with open(path) as f:
+                        return json.load(f)
+            
+            st.sidebar.error(f"Valves file not found. Tried: {', '.join(alt_paths)}")
+            
+            # Create sample data for testing
+            st.sidebar.warning("Using sample data for testing")
+            return {
+                "V-501": {"x": 100, "y": 100, "controls_pipes": [1, 2, 3]},
+                "V-502": {"x": 200, "y": 200, "controls_pipes": [4, 5, 6]},
+                "V-503": {"x": 300, "y": 300, "controls_pipes": [7, 8, 9]}
+            }
+        
+        # File exists, load it
         with open(VALVES_FILE) as f:
             data = json.load(f)
-            # Convert to new format if old format exists
-            for tag, valve_data in data.items():
-                if isinstance(valve_data, dict) and "controls_pipes" not in valve_data:
-                    # Old format - add empty controls
-                    valve_data["controls_pipes"] = []
+            st.sidebar.success(f"Loaded valves from: {VALVES_FILE}")
             return data
+            
     except Exception as e:
-        st.error(f"Error loading valves: {e}")
+        st.sidebar.error(f"Error loading valves: {type(e).__name__}: {str(e)}")
         return {}
 
 def load_pipes():
     try:
+        # Check if file exists
+        if not os.path.exists(PIPES_FILE):
+            # Try alternative paths
+            alt_paths = [
+                PIPES_FILE,
+                f"data/{PIPES_FILE}",
+                f"../{PIPES_FILE}",
+                f"./data/{PIPES_FILE}",
+                f"../data/{PIPES_FILE}"
+            ]
+            
+            for path in alt_paths:
+                if os.path.exists(path):
+                    st.sidebar.success(f"Found pipes at: {path}")
+                    with open(path) as f:
+                        return json.load(f)
+            
+            st.sidebar.error(f"Pipes file not found. Tried: {', '.join(alt_paths)}")
+            
+            # Create sample data for testing
+            st.sidebar.warning("Using sample pipe data for testing")
+            return [
+                {"x1": 50, "y1": 50, "x2": 150, "y2": 50},
+                {"x1": 150, "y1": 50, "x2": 150, "y2": 150},
+                {"x1": 150, "y1": 150, "x2": 250, "y2": 150},
+                {"x1": 250, "y1": 150, "x2": 250, "y2": 250},
+                {"x1": 250, "y1": 250, "x2": 350, "y2": 250},
+                {"x1": 350, "y1": 250, "x2": 350, "y2": 350}
+            ]
+        
+        # File exists, load it
         with open(PIPES_FILE) as f:
-            return json.load(f)
+            data = json.load(f)
+            st.sidebar.success(f"Loaded pipes from: {PIPES_FILE}")
+            return data
+            
     except Exception as e:
-        st.error(f"Error loading pipes: {e}")
+        st.sidebar.error(f"Error loading pipes: {type(e).__name__}: {str(e)}")
         return []
 
 valves = load_valves()
 pipes = load_pipes()
+
+# ===================== CHECK P&ID IMAGE =====================
+if not os.path.exists(PID_FILE):
+    st.sidebar.error(f"P&ID image not found: {PID_FILE}")
+    # Create a blank image for testing
+    st.sidebar.warning("Creating test image")
+    test_image = Image.new('RGB', (800, 600), color='white')
+    draw = ImageDraw.Draw(test_image)
+    draw.text((100, 100), "TEST IMAGE - No P&ID found", fill="black")
+    test_image.save("test_p&id.png")
+    PID_FILE = "test_p&id.png"
 
 # ===================== SESSION STATE =====================
 if "valve_states" not in st.session_state:
@@ -46,39 +130,31 @@ if "selected_pipe" not in st.session_state:
 if "pipes_data" not in st.session_state:
     st.session_state.pipes_data = {SYSTEM_NAME: pipes}
 
-# Use global pipes for this system
 st.session_state.pipes_data.setdefault(SYSTEM_NAME, pipes)
 pipes = st.session_state.pipes_data[SYSTEM_NAME]
 
-# ===================== GROUPS & HARD-CODED =====================
-# Now we can use the JSON data instead of hardcoding!
+# ===================== REMAINING CODE (same as before) =====================
 def get_controlled_pipes():
-    """Get which pipes are controlled by open valves based on JSON data"""
     controlled = set()
     for tag, valve_data in valves.items():
         if st.session_state.valve_states.get(tag, False):
-            # Add pipes controlled by this valve
             for pipe_num in valve_data.get("controls_pipes", []):
-                controlled.add(pipe_num - 1)  # Convert to 0-index
+                controlled.add(pipe_num - 1)
     return controlled
 
 def get_groups():
-    """Optional: Still keep if you want hierarchical groups"""
     return {
-        2: [3, 4, 5],    # Main return header
-        8: [9, 10, 11],  # Secondary return
-        5: [6, 7],       # Collector lines
-        11: [12, 13],    # Drain connections
-        13: [14, 15]     # Tank returns
+        2: [3, 4, 5],
+        8: [9, 10, 11],
+        5: [6, 7],
+        11: [12, 13],
+        13: [14, 15]
     }
 
 def get_active_leaders():
-    """Combine JSON-controlled pipes with proximity detection"""
     active = get_controlled_pipes()
-    
-    # Still keep proximity fallback for backward compatibility
     for i, pipe in enumerate(pipes):
-        if i in active:  # Skip if already controlled
+        if i in active:
             continue
         for tag, valve_data in valves.items():
             if st.session_state.valve_states.get(tag, False):
@@ -88,66 +164,54 @@ def get_active_leaders():
                     break
     return active
 
-# ===================== COLOR LOGIC WITH PRESSURE =====================
 def get_pipe_color(i):
     if i == st.session_state.selected_pipe:
-        return (148, 0, 211)  # Purple for selected
+        return (148, 0, 211)
     num = i + 1
     active = get_active_leaders()
-    
-    # Check if pipe has flow (controlled by valve)
     has_flow = i in active
-    
-    # Check if pipe has pressure (from sources or upstream)
     has_pressure = (num in PRESSURE_SOURCES) or any(
         leader_num in PRESSURE_SOURCES 
         for leader_num in get_groups().keys() 
         if (leader_num - 1) in active
     )
-    
-    # Color logic
     if has_flow and has_pressure:
-        return (0, 255, 0)  # Green: flowing with pressure
+        return (0, 255, 0)
     elif has_pressure:
-        return (100, 200, 255)  # Light blue: pressurized but no flow
+        return (100, 200, 255)
     elif has_flow:
-        return (50, 200, 50)  # Darker green: flowing but no pressure
+        return (50, 200, 50)
     else:
-        return (50, 50, 80)  # Dark: inactive
+        return (50, 50, 80)
 
-# ===================== RENDER =====================
 def render():
-    img = Image.open(PID_FILE).convert("RGBA")
-    draw = ImageDraw.Draw(img)
-    
-    # Draw pipes
-    for i, pipe in enumerate(pipes):
-        color = get_pipe_color(i)
-        w = 8 if i == st.session_state.selected_pipe else 6
-        draw.line([(pipe["x1"], pipe["y1"]), (pipe["x2"], pipe["y2"])], 
-                  fill=color, width=w)
-        if i == st.session_state.selected_pipe:
-            draw.ellipse([pipe["x1"]-6, pipe["y1"]-6, pipe["x1"]+6, pipe["y1"]+6], 
-                        fill=(255,0,0), outline="white")
-            draw.ellipse([pipe["x2"]-6, pipe["y2"]-6, pipe["x2"]+6, pipe["y2"]+6], 
-                        fill=(255,0,0), outline="white")
-    
-    # Draw valves
-    for tag, valve_data in valves.items():
-        c = (0, 255, 0) if st.session_state.valve_states.get(tag, False) else (255, 0, 0)
-        x, y = valve_data["x"], valve_data["y"]
-        draw.ellipse([x-10, y-10, x+10, y+10], fill=c, outline="white", width=3)
+    try:
+        img = Image.open(PID_FILE).convert("RGBA")
+        draw = ImageDraw.Draw(img)
         
-        # Show controlled pipes count on valve
-        controlled_count = len(valve_data.get("controls_pipes", []))
-        if controlled_count > 0:
-            draw.text((x-5, y-5), str(controlled_count), fill="white", 
-                     stroke_fill="black", stroke_width=1)
+        for i, pipe in enumerate(pipes):
+            color = get_pipe_color(i)
+            w = 8 if i == st.session_state.selected_pipe else 6
+            draw.line([(pipe["x1"], pipe["y1"]), (pipe["x2"], pipe["y2"])], 
+                      fill=color, width=w)
+            if i == st.session_state.selected_pipe:
+                draw.ellipse([pipe["x1"]-6, pipe["y1"]-6, pipe["x1"]+6, pipe["y1"]+6], 
+                            fill=(255,0,0), outline="white")
+                draw.ellipse([pipe["x2"]-6, pipe["y2"]-6, pipe["x2"]+6, pipe["y2"]+6], 
+                            fill=(255,0,0), outline="white")
         
-        draw.text((x+15, y-10), tag, fill="white", 
-                 stroke_fill="black", stroke_width=2)
-    
-    return img.convert("RGB")
+        for tag, valve_data in valves.items():
+            c = (0, 255, 0) if st.session_state.valve_states.get(tag, False) else (255, 0, 0)
+            x, y = valve_data["x"], valve_data["y"]
+            draw.ellipse([x-10, y-10, x+10, y+10], fill=c, outline="white", width=3)
+            draw.text((x+15, y-10), tag, fill="white", 
+                     stroke_fill="black", stroke_width=2)
+        
+        return img.convert("RGB")
+    except Exception as e:
+        st.error(f"Render error: {e}")
+        # Return blank image
+        return Image.new('RGB', (800, 600), color='gray')
 
 # ===================== UI =====================
 st.title(f"{SYSTEM_NAME} – Live Rig Simulation")
@@ -157,28 +221,19 @@ with st.sidebar:
     for tag, valve_data in valves.items():
         s = st.session_state.valve_states.get(tag, False)
         label = f"{'✅ OPEN' if s else '❌ CLOSED'} {tag}"
-        
-        # Show controlled pipes in tooltip
-        controlled = valve_data.get("controls_pipes", [])
-        if controlled:
-            label += f" (Pipes: {', '.join(map(str, controlled))})"
-        
         if st.button(label, key=tag, use_container_width=True):
             st.session_state.valve_states[tag] = not s
             st.rerun()
     
     st.markdown("---")
-    st.header("Pipe Selection")
-    for i in range(len(pipes)):
-        if st.button(f"Pipe {i+1}", key=f"p{i}", use_container_width=True):
-            st.session_state.selected_pipe = i
-            st.rerun()
-    if st.button("Unselect", use_container_width=True):
-        st.session_state.selected_pipe = None
+    st.header("Debug Tools")
+    if st.button("Reset All Valves", use_container_width=True):
+        st.session_state.valve_states = {tag: False for tag in valves}
         st.rerun()
     
-    if st.button("Back to Home"):
-        st.switch_page("home.py")
+    if st.button("Test - Open All", use_container_width=True):
+        st.session_state.valve_states = {tag: True for tag in valves}
+        st.rerun()
 
 col1, col2 = st.columns([3, 1])
 with col1:
@@ -187,25 +242,8 @@ with col1:
 
 with col2:
     st.header("Status")
-    
-    # Count different pipe states
-    colors = [get_pipe_color(i) for i in range(len(pipes))]
-    flowing = sum(1 for c in colors if c == (0, 255, 0))
-    flowing_no_pressure = sum(1 for c in colors if c == (50, 200, 50))
-    pressurized = sum(1 for c in colors if c in [(0, 255, 0), (100, 200, 255)])
-    inactive = sum(1 for c in colors if c == (50, 50, 80))
-    
-    st.metric("Flowing (with pressure)", flowing)
-    st.metric("Flowing (no pressure)", flowing_no_pressure)
-    st.metric("Pressurized", pressurized)
-    st.metric("Inactive", inactive)
-    
-    # Show which valves control which pipes
-    st.markdown("---")
-    st.subheader("Valve Controls")
-    for tag, valve_data in valves.items():
-        if valve_data.get("controls_pipes"):
-            status = "✅" if st.session_state.valve_states.get(tag, False) else "❌"
-            st.write(f"{status} **{tag}**: Pipes {valve_data['controls_pipes']}")
+    flowing = sum(1 for i in range(len(pipes)) if get_pipe_color(i) == (0,255,0))
+    st.write(f"**Flowing:** {flowing}")
+    st.write(f"**Pressurized:** {sum(1 for i in range(len(pipes)) if get_pipe_color(i) in [(0,255,0),(100,200,255)])}")
 
-st.success(f"Valves now directly control assigned pipes from JSON data!")
+st.info("If files are missing, check the sidebar for debugging info. Sample data is being used for testing.")
