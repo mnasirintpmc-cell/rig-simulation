@@ -188,7 +188,7 @@ def get_system_files(system_name):
             "png": "assets/p&id_pressure_return.png"
         },
         "seal": {
-            "valves": "data/valves_separatoin_seal.json",
+            "valves": "data/valves_separation_seal.json",
             "pipes": "data/pipes_separation_seal.json",
             "png": "assets/p&id_separation_seal.png"
         }
