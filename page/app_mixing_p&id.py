@@ -3,7 +3,7 @@ import streamlit as st
 from PIL import Image, ImageDraw
 import json, os
 
-def run(valve_states):
+def run(valve_states, fill_height=False):
     # ===================== FILE PATHS =====================
     PID_FILE = os.path.join("assets", "p&id_mixing.png")
     PIPES_FILE = os.path.join("data", "pipes_mixing.json")
@@ -67,4 +67,8 @@ def run(valve_states):
         draw.ellipse([x-12,y-12,x+12,y+12], fill=color, outline="white", width=3)
         draw.text((x+15,y-15), v_tag, fill="white", stroke_fill="black", stroke_width=2)
 
-    st.image(img, use_column_width=True, caption="Valve status on P&ID")
+    # Display P&ID in fixed container
+    if fill_height:
+        st.image(img, use_column_width=True, caption="Valve status on P&ID")
+    else:
+        st.image(img, use_column_width=True)
