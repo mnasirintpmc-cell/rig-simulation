@@ -6,7 +6,7 @@ import os
 
 st.set_page_config(layout="wide", page_title="Rig Simulation")
 
-# ===================== MANUAL IMPORT OF FILE WITH & =====================
+# ===================== LOAD PAGE WITH & IN FILENAME =====================
 page_file = os.path.join("page", "app_mixing_p&id.py")
 spec = importlib.util.spec_from_file_location("app_mixing", page_file)
 app_mixing = importlib.util.module_from_spec(spec)
@@ -20,6 +20,6 @@ choice = st.sidebar.selectbox("Navigation", menu)
 if choice == "Home":
     st.title("Rig Simulation Dashboard")
     st.write("Welcome to the Rig Simulation.")
-    st.write("Use the sidebar to navigate between pages.")
+    st.write("Select 'Mixing Area' from the sidebar to control valves.")
 elif choice == "Mixing Area":
-    app_mixing.run()  # run the mixing page
+    app_mixing.run()
