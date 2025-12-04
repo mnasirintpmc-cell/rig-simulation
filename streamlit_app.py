@@ -5,6 +5,7 @@ import sys
 import os
 import json
 
+# Wide layout for full P&ID
 st.set_page_config(layout="wide", page_title="Rig Simulation")
 
 # ===================== LOAD PAGE =====================
@@ -39,6 +40,9 @@ elif choice == "Mixing Area":
         if st.sidebar.button(label, key=f"valve_{v_tag}"):
             st.session_state.valve_states[v_tag] = not state
 
-    # Main P&ID rendering
+    # Main P&ID rendering in a fixed container
     st.markdown("### P&ID – Valve Status")
-    app_mixing.run(st.session_state.valve_states)
+    # Use a container to fix the height
+    pid_container = st.container()
+    with pid_container:
+        app_mixing.run(st.session_state.valve_states, fill_height=True)
