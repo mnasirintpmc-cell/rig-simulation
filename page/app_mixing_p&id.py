@@ -39,7 +39,7 @@ for tag, v in valves_raw.items():
     for k, lst in v.items():
         if k.endswith(".json") and isinstance(lst, list):
             for index in lst:
-                if index > 0 and index <= len(pipes):
+                if 0 < index <= len(pipes):
                     connected.append(pipes[index - 1]["tag"])
     valves[tag] = {
         "x": v["x"],
@@ -51,8 +51,7 @@ for tag, v in valves_raw.items():
 if "valve_states" not in st.session_state:
     st.session_state.valve_states = {v: False for v in valves}
 
-# ---- Build flow graph ----
-# pipe_tag -> valves connected to it
+# ---- Build flow graph: pipe_tag -> valves ----
 pipe_to_valves = {}
 for v_tag, v in valves.items():
     for p in v["connected_pipes"]:
@@ -64,19 +63,18 @@ for v_tag, v in valves.items():
 def get_active_pipes():
     active = set()
     visited_valves = set()
-    
-    # Start from main inlets
-    upstream_valves = ["v-101", "v-102", "v-103"]
-    
+
+    upstream_valves = ["v-101", "v-102", "v-103"]  # main inlets
+
     def dfs(valve):
         if valve in visited_valves:
             return
         visited_valves.add(valve)
-        
-        # If valve is closed, block downstream
+
+        # Stop if valve is closed
         if not st.session_state.valve_states.get(valve, False):
             return
-        
+
         # Open all connected pipes
         for p in valves[valve]["connected_pipes"]:
             active.add(p)
@@ -84,10 +82,10 @@ def get_active_pipes():
             for downstream_valve in pipe_to_valves.get(p, []):
                 if downstream_valve != valve:
                     dfs(downstream_valve)
-    
+
     for v in upstream_valves:
         dfs(v)
-    
+
     return active
 
 # ---- Render P&ID ----
@@ -96,7 +94,7 @@ def render_pid():
         img = Image.open(PID_FILE).convert("RGBA")
     except:
         img = Image.new("RGBA", (1400, 800), (40,40,40))
-    
+
     draw = ImageDraw.Draw(img)
     active = get_active_pipes()
 
@@ -139,8 +137,9 @@ def run():
 
         for tag in valves:
             current = st.session_state.valve_states[tag]
-            if st.button(f"{'OPEN' if not current else 'CLOSE'} {tag}", key=tag):
+            label = f"{'OPEN' if not current else 'CLOSE'} {tag}"
+            if st.button(label, key=tag):
                 st.session_state.valve_states[tag] = not current
-                st.experimental_rerun()
+                # NO st.experimental_rerun() needed
 
         st.markdown("</div>", unsafe_allow_html=True)
