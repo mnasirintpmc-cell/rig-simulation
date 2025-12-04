@@ -31,13 +31,14 @@ if choice == "Home":
     st.write("Select 'Mixing Area' from the sidebar to control valves.")
 
 elif choice == "Mixing Area":
+    # Sidebar with scrollable valve controls
     st.sidebar.header("Valve Controls")
-    # Update session state on button click
     for v_tag in st.session_state.valve_states:
         state = st.session_state.valve_states[v_tag]
         label = f"{'OPEN' if state else 'CLOSED'} {v_tag}"
         if st.sidebar.button(label, key=f"valve_{v_tag}"):
             st.session_state.valve_states[v_tag] = not state
 
-    # Render the mixing page (P&ID updates automatically based on session state)
+    # Main P&ID rendering
+    st.markdown("### P&ID – Valve Status")
     app_mixing.run(st.session_state.valve_states)
