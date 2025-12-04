@@ -1,8 +1,9 @@
+# app_mixing_p&id.py - Mixing Page
 import streamlit as st
 from PIL import Image, ImageDraw
 import json, os
 
-st.set_page_config(layout="wide", page_title="Rig Simulation - Mixing")
+st.set_page_config(layout="wide", page_title="Mixing Area")
 
 # ===================== FILE PATHS =====================
 def find_file(filename, folders=["assets", "data", "."]):
@@ -12,7 +13,6 @@ def find_file(filename, folders=["assets", "data", "."]):
             return path
     return None
 
-SYSTEM_NAME = "Mixing Area"
 PID_FILE = find_file("p&id_mixing.png")
 VALVES_FILE = find_file("valves_mixing.json")
 PIPES_FILE = find_file("pipes_mixing.json")
@@ -30,14 +30,16 @@ def load_json(file):
         st.error(f"Error loading {file}: {e}")
         return {} if "valves" in file else []
 
-pipes = load_json(PIPES_FILE)
 valves_raw = load_json(VALVES_FILE)
+pipes_raw = load_json(PIPES_FILE)
 
-# ===================== ASSIGN PIPE TAGS =====================
-for idx, pipe in enumerate(pipes):
+# ===================== DYNAMIC PIPE TAGS =====================
+pipes = []
+for idx, pipe in enumerate(pipes_raw):
     pipe["tag"] = f"P{idx+1}"
+    pipes.append(pipe)
 
-# ===================== MAP VALVES TO PIPES SAFELY =====================
+# ===================== MAP VALVES TO PIPE TAGS SAFELY =====================
 valves = {}
 for v_tag, vdata in valves_raw.items():
     connected_tags = []
@@ -72,37 +74,33 @@ def get_active_pipes():
 
 def get_pipe_status(pipe_tag, active_pipes):
     has_flow = pipe_tag in active_pipes
-    return has_flow, has_flow  # flow and pressure simplified
+    has_pressure = has_flow
+    return has_flow, has_pressure
 
 # ===================== RENDER SYSTEM =====================
 def render_system():
     try:
         img = Image.open(PID_FILE).convert("RGBA")
     except:
-        img = Image.new("RGBA", (800,600), (50,50,50))
+        img = Image.new("RGBA", (800, 600), (50, 50, 50))
         draw = ImageDraw.Draw(img)
-        draw.text((100,300), f"Missing {PID_FILE}", fill="white")
+        draw.text((100, 300), f"Missing {PID_FILE}", fill="white")
         return img.convert("RGB")
 
     draw = ImageDraw.Draw(img)
     active_pipes = get_active_pipes()
 
-    # Draw pipes
     for pipe in pipes:
         p_tag = pipe["tag"]
-        has_flow, has_pressure = get_pipe_status(p_tag, active_pipes)
+        has_flow, _ = get_pipe_status(p_tag, active_pipes)
         if st.session_state.selected_pipe == p_tag:
-            color = (180,0,255)
-            width = 9
+            color, width = (180,0,255), 9
         elif has_flow:
-            color = (0,255,0)
-            width = 7
+            color, width = (0,255,0), 7
         else:
-            color = (60,60,100)
-            width = 4
+            color, width = (60,60,100), 4
         draw.line([(pipe["x1"], pipe["y1"]),(pipe["x2"], pipe["y2"])], fill=color, width=width)
 
-    # Draw valves
     for v_tag, vdata in valves.items():
         x, y = vdata["x"], vdata["y"]
         color = (0,255,0) if st.session_state.valve_states.get(v_tag, False) else (255,0,0)
@@ -112,7 +110,7 @@ def render_system():
     return img.convert("RGB")
 
 # ===================== UI =====================
-st.title(f"Rig Simulation – {SYSTEM_NAME}")
+st.title("Rig Simulation – Mixing Area")
 
 with st.sidebar:
     st.header("Valve Controls")
