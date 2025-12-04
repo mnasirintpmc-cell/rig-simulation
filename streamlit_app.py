@@ -1,47 +1,12 @@
-# streamlit_rig_sim.py - Plug-and-play tag-based system
+# mixing_page_fixed2.py - Plug-and-play Mixing System using pipe indices from JSON
 import streamlit as st
 from PIL import Image, ImageDraw
 import json
 import os
 
-st.set_page_config(layout="wide", page_title="Rig Simulation Plug & Play")
+st.set_page_config(layout="wide", page_title="Rig Simulation - Mixing")
 
-# ===================== SYSTEM CONFIGURATION =====================
-# Define your systems here
-SYSTEMS = {
-    "mixing": {
-        "name": "Mixing Area",
-        "pid": "p&id_mixing.png",
-        "valves": "valves_mixing.json",
-        "pipes": "pipes_mixing.json"
-    },
-    "supply": {
-        "name": "Pressure Supply",
-        "pid": "p&id_pressure_in.png",
-        "valves": "valves_pressure_in.json",
-        "pipes": "pipes_pressure_in.json"
-    },
-    "dgs": {
-        "name": "DGS System",
-        "pid": "p&id_dgs.png",
-        "valves": "valves_dgs.json",
-        "pipes": "pipes_dgs.json"
-    },
-    "return": {
-        "name": "Pressure Return",
-        "pid": "p&id_pressure_return.png",
-        "valves": "valves_pressure_return.json",
-        "pipes": "pipes_pressure_return.json"
-    },
-    "seal": {
-        "name": "Separation Seal",
-        "pid": "p&id_separation_seal.png",
-        "valves": "valves_separation_seal.json",
-        "pipes": "pipes_separation_seal.json"
-    }
-}
-
-# ===================== DYNAMIC FILE FINDER =====================
+# ===================== FILE PATHS =====================
 def find_file(filename, folders=["assets", "data", "."]):
     for f in folders:
         path = os.path.join(f, filename)
@@ -49,80 +14,92 @@ def find_file(filename, folders=["assets", "data", "."]):
             return path
     return None
 
-# ===================== SESSION STATE =====================
-if "current_system" not in st.session_state:
-    st.session_state.current_system = "mixing"
-if "valve_states" not in st.session_state:
-    st.session_state.valve_states = {}
-if "selected_pipe" not in st.session_state:
-    st.session_state.selected_pipe = None
+SYSTEM_NAME = "Mixing Area"
+PID_FILE = find_file("p&id_mixing.png")
+VALVES_FILE = find_file("valves_mixing.json", ["data", "."])
+PIPES_FILE = find_file("pipes_mixing.json", ["data", "."])
 
-# ===================== LOAD DATA =====================
+if not all([PID_FILE, VALVES_FILE, PIPES_FILE]):
+    st.error("❌ Missing required files!")
+    st.stop()
+
+# ===================== LOAD JSON =====================
 def load_json(file):
     try:
         with open(file) as f:
-            data = json.load(f)
-            return data
+            return json.load(f)
     except Exception as e:
         st.error(f"Error loading {file}: {e}")
         return {} if "valves" in file else []
 
-def load_system(system_id):
-    cfg = SYSTEMS[system_id]
-    pid_file = find_file(cfg["pid"])
-    valves_file = find_file(cfg["valves"], ["data", "."])
-    pipes_file = find_file(cfg["pipes"], ["data", "."])
+valves_raw = load_json(VALVES_FILE)
+pipes_raw = load_json(PIPES_FILE)
 
-    valves = load_json(valves_file)
-    pipes = load_json(pipes_file)
+# ===================== DYNAMIC PIPE TAGS =====================
+pipes = []
+for idx, pipe in enumerate(pipes_raw):
+    pipe["tag"] = f"P{idx+1}"
+    pipes.append(pipe)
 
-    # Initialize valve states for new valves
-    for tag in valves:
-        if tag not in st.session_state.valve_states:
-            st.session_state.valve_states[tag] = False
+# ===================== MAP VALVES TO PIPE TAGS =====================
+valves = {}
+for v_tag, vdata in valves_raw.items():
+    # Collect all connected pipes from any JSON keys
+    connected_indices = []
+    for key, indices in vdata.items():
+        if key.endswith(".json") and isinstance(indices, list):
+            connected_indices.extend(indices)
+    # Convert indices to pipe tags
+    connected_tags = [pipes[i-1]["tag"] if i > 0 else pipes[0]["tag"] for i in connected_indices]
+    valves[v_tag] = {
+        "x": vdata["x"],
+        "y": vdata["y"],
+        "connected_pipes": connected_tags,
+        "state": vdata.get("state", "Closed")
+    }
 
-    return cfg["name"], pid_file, valves, pipes
+# ===================== SESSION STATE =====================
+if "valve_states" not in st.session_state:
+    st.session_state.valve_states = {tag: False for tag in valves}
+if "selected_pipe" not in st.session_state:
+    st.session_state.selected_pipe = None
 
-# ===================== DIRECT TAG-BASED MAPPING =====================
-def get_active_pipes(valves):
-    """Return set of active pipe tags based on open valves"""
+# ===================== PIPE STATUS =====================
+def get_active_pipes():
     active = set()
     for v_tag, vdata in valves.items():
         if st.session_state.valve_states.get(v_tag, False):
-            connected = vdata.get("connected_pipes", [])
-            active.update(connected)
+            active.update(vdata.get("connected_pipes", []))
     return active
 
-def get_pipe_status(pipe_tag, active_pipes, pressure_sources=[]):
+def get_pipe_status(pipe_tag, active_pipes):
     has_flow = pipe_tag in active_pipes
-    has_pressure = pipe_tag in pressure_sources or has_flow
+    has_pressure = has_flow
     return has_flow, has_pressure
 
 # ===================== RENDER =====================
-def render_system(pid_file, valves, pipes, active_pipes):
+def render_system():
     try:
-        img = Image.open(pid_file).convert("RGBA")
+        img = Image.open(PID_FILE).convert("RGBA")
     except:
         img = Image.new("RGBA", (800, 600), (50, 50, 50))
         draw = ImageDraw.Draw(img)
-        draw.text((100, 300), f"Missing {pid_file}", fill="white")
+        draw.text((100, 300), f"Missing {PID_FILE}", fill="white")
         return img.convert("RGB")
 
     draw = ImageDraw.Draw(img)
+    active_pipes = get_active_pipes()
 
     # Draw pipes
     for pipe in pipes:
         p_tag = pipe["tag"]
         has_flow, has_pressure = get_pipe_status(p_tag, active_pipes)
         if st.session_state.selected_pipe == p_tag:
-            color = (180, 0, 255)  # Selected pipe
+            color = (180, 0, 255)
             width = 9
-        elif has_flow and has_pressure:
+        elif has_flow:
             color = (0, 255, 0)
             width = 7
-        elif has_pressure:
-            color = (100, 180, 255)
-            width = 6
         else:
             color = (60, 60, 100)
             width = 4
@@ -138,27 +115,10 @@ def render_system(pid_file, valves, pipes, active_pipes):
     return img.convert("RGB")
 
 # ===================== UI =====================
-# Home page: select system
-st.title("🏭 Rig Simulation - Plug & Play")
-cols = st.columns(len(SYSTEMS))
-for idx, (sys_id, cfg) in enumerate(SYSTEMS.items()):
-    with cols[idx]:
-        if st.button(cfg["name"]):
-            st.session_state.current_system = sys_id
-            st.session_state.selected_pipe = None
-            st.rerun()
+st.title(f"Rig Simulation – {SYSTEM_NAME}")
 
-st.markdown("---")
-
-# Load current system
-system_name, pid_file, valves, pipes = load_system(st.session_state.current_system)
-
-# Active pipes
-active_pipes = get_active_pipes(valves)
-
-# Sidebar: valves & pipe selection
 with st.sidebar:
-    st.header(f"Valve Controls ({system_name})")
+    st.header("Valve Controls")
     for v_tag in valves:
         state = st.session_state.valve_states.get(v_tag, False)
         label = f"{'OPEN' if state else 'CLOSED'} {v_tag}"
@@ -178,32 +138,22 @@ with st.sidebar:
             st.session_state.selected_pipe = p_tag
             st.rerun()
 
-# Main layout
-col1, col2 = st.columns([3, 1])
+col1, col2 = st.columns([3,1])
 with col1:
-    st.image(render_system(pid_file, valves, pipes, active_pipes), use_container_width=True,
-             caption="🟢 Flowing | 💙 Pressurized | ⚫ Empty | 🟣 Selected")
+    st.image(render_system(), use_container_width=True,
+             caption="🟢 Flowing | ⚫ Empty | 🟣 Selected")
 
 with col2:
     st.header("Live Status")
-    st.write(f"System: {system_name}")
-    st.write(f"Active Pipes: {len(active_pipes)} / {len(pipes)}")
-    st.write("Open Valves:")
-    for v_tag, state in st.session_state.valve_states.items():
-        if state:
-            st.write(f"🟢 {v_tag}")
-
+    active_pipes = get_active_pipes()
+    st.metric("Active Pipes", len(active_pipes))
+    open_valves = sum(1 for v in st.session_state.valve_states.values() if v)
+    st.metric("Open Valves", f"{open_valves}/{len(valves)}")
     st.markdown("---")
     st.header("Active Pipe Details")
     for pipe in pipes:
         p_tag = pipe["tag"]
         if p_tag in active_pipes:
-            controlling = [v_tag for v_tag, vdata in valves.items() 
-                           if st.session_state.valve_states.get(v_tag, False) and p_tag in vdata.get("connected_pipes", [])]
+            controlling = [v_tag for v_tag, vdata in valves.items()
+                           if st.session_state.valve_states.get(v_tag, False) and p_tag in vdata["connected_pipes"]]
             st.write(f"• Pipe {p_tag} ← {', '.join(controlling)}")
-
-# Debug info
-with st.sidebar.expander("🔧 Debug Info"):
-    st.write("Valve States:", st.session_state.valve_states)
-    st.write("Selected Pipe:", st.session_state.selected_pipe)
-    st.write("Active Pipes:", active_pipes)
