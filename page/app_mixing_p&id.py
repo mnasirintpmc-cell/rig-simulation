@@ -1,4 +1,4 @@
-# app_mixing_p&id.py - Mixing Page
+# app_mixing_pid.py - Mixing Page
 import streamlit as st
 from PIL import Image, ImageDraw
 import json, os
@@ -13,7 +13,7 @@ def find_file(filename, folders=["assets", "data", "."]):
             return path
     return None
 
-PID_FILE = find_file("p&id_mixing.png", ["assets"])
+PID_FILE = find_file("p_id_mixing.png", ["assets"])
 VALVES_FILE = find_file("valves_mixing.json", ["data"])
 PIPES_FILE = find_file("pipes_mixing.json", ["data"])
 
