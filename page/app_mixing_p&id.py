@@ -13,9 +13,9 @@ def find_file(filename, folders=["assets", "data", "."]):
             return path
     return None
 
-PID_FILE = find_file("p&id_mixing.png")
-VALVES_FILE = find_file("valves_mixing.json")
-PIPES_FILE = find_file("pipes_mixing.json")
+PID_FILE = find_file("p&id_mixing.png", ["assets"])
+VALVES_FILE = find_file("valves_mixing.json", ["data"])
+PIPES_FILE = find_file("pipes_mixing.json", ["data"])
 
 if not all([PID_FILE, VALVES_FILE, PIPES_FILE]):
     st.error("❌ Missing required files!")
