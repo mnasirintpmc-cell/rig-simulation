@@ -4,8 +4,6 @@ from PIL import Image, ImageDraw
 import json, os
 
 def run(valve_states):
-    st.title("Rig Simulation – Mixing Area")
-
     # ===================== FILE PATHS =====================
     PID_FILE = os.path.join("assets", "p&id_mixing.png")
     PIPES_FILE = os.path.join("data", "pipes_mixing.json")
@@ -48,10 +46,10 @@ def run(valve_states):
     try:
         img = Image.open(PID_FILE).convert("RGBA")
     except:
-        img = Image.new("RGBA", (800,600),(50,50,50))
+        img = Image.new("RGBA", (1200,600),(50,50,50))
         draw = ImageDraw.Draw(img)
         draw.text((100,300), f"Missing {PID_FILE}", fill="white")
-        st.image(img)
+        st.image(img, use_column_width=True)
         return
 
     draw = ImageDraw.Draw(img)
