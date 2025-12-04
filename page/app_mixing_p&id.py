@@ -38,7 +38,7 @@ def run(valve_states):
             "connected_pipes": connected_tags
         }
 
-    # Determine active pipes
+    # Determine active pipes based on open valves
     active_pipes = set()
     for v_tag, p_list in valves.items():
         if valve_states.get(v_tag, False):
