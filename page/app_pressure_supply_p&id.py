@@ -96,7 +96,7 @@ def render():
     # Draw valves
     for tag, v in valves.items():
         color = (0, 255, 0) if st.session_state.valve_states.get(tag, False) else (255, 0, 0)
-        draw.ellipse([v["x"]-9, v["y"]-9, v["x"]+9, v["y"]+9], fill=color, outline="white", width=3)
+        draw.ellipse([v["x"]-5, v["y"]-5, v["x"]+5, v["y"]+5], fill=color, outline="white", width=3)
         draw.text((v["x"]+15, v["y"]-15), tag, fill="white", stroke_fill="black", stroke_width=2)
 
     return img.convert("RGB")
