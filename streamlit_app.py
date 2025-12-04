@@ -1,34 +1,38 @@
 import streamlit as st
-from page import app_mixing_p_and_id
+import importlib.util
+import os
 
-st.set_page_config(
-    page_title="Rig Simulation Dashboard",
-    layout="wide",
+st.set_page_config(layout="wide", page_title="Rig Simulation Dashboard")
+
+# ---- Load mixing page manually (file contains &) ----
+def load_page(path):
+    spec = importlib.util.spec_from_file_location("mixing_page", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+MIXING_FILE = "page/app_mixing_p&id.py"
+
+if not os.path.exists(MIXING_FILE):
+    st.error(f"Mixing page file not found: {MIXING_FILE}")
+    st.stop()
+
+app_mixing = load_page(MIXING_FILE)
+
+# ---- Sidebar Navigation ----
+st.sidebar.title("Rig Simulation Menu")
+
+page = st.sidebar.radio(
+    "Select System:",
+    ["🏭 Home", "🔀 Mixing Area"],
+    index=0
 )
 
+# ---- Main Pages ----
+if page == "🏭 Home":
+    st.title("Rig Simulation Dashboard")
+    st.write("Welcome to the Rig Simulation System.")
+    st.write("Select **Mixing Area** from the sidebar to begin.")
 
-# ---- INIT SESSION ----
-if "valve_states" not in st.session_state:
-    st.session_state.valve_states = {}
-
-
-# ---- SIDEBAR (VALVE CONTROL) ----
-st.sidebar.title("Valve Control Panel")
-
-# Import valve names from JSON
-import json
-with open("data/valves_mixing.json") as f:
-    valves_json = json.load(f)
-
-for v in valves_json.keys():
-    if v not in st.session_state.valve_states:
-        st.session_state.valve_states[v] = False
-
-    st.session_state.valve_states[v] = st.sidebar.toggle(
-        v,
-        value=st.session_state.valve_states[v]
-    )
-
-
-# ---- MAIN PAGE (P&ID VISUAL OUTPUT) ----
-app_mixing_p_and_id.run(st.session_state.valve_states)
+elif page == "🔀 Mixing Area":
+    app_mixing.run()
