@@ -51,19 +51,53 @@ for tag, v in valves_raw.items():
 if "valve_states" not in st.session_state:
     st.session_state.valve_states = {v: False for v in valves}
 
-# ---- Active pipes ----
+# ---- Build flow graph ----
+# pipe_tag -> valves connected to it
+pipe_to_valves = {}
+for v_tag, v in valves.items():
+    for p in v["connected_pipes"]:
+        if p not in pipe_to_valves:
+            pipe_to_valves[p] = []
+        pipe_to_valves[p].append(v_tag)
+
+# ---- Determine active pipes using upstream logic ----
 def get_active_pipes():
     active = set()
-    for vtag, vdata in valves.items():
-        if st.session_state.valve_states.get(vtag):
-            active.update(vdata["connected_pipes"])
+    visited_valves = set()
+    
+    # Start from main inlets
+    upstream_valves = ["v-101", "v-102", "v-103"]
+    
+    def dfs(valve):
+        if valve in visited_valves:
+            return
+        visited_valves.add(valve)
+        
+        # If valve is closed, block downstream
+        if not st.session_state.valve_states.get(valve, False):
+            return
+        
+        # Open all connected pipes
+        for p in valves[valve]["connected_pipes"]:
+            active.add(p)
+            # Traverse to downstream valves connected to this pipe
+            for downstream_valve in pipe_to_valves.get(p, []):
+                if downstream_valve != valve:
+                    dfs(downstream_valve)
+    
+    for v in upstream_valves:
+        dfs(v)
+    
     return active
 
 # ---- Render P&ID ----
 def render_pid():
-    img = Image.open(PID_FILE).convert("RGBA")
+    try:
+        img = Image.open(PID_FILE).convert("RGBA")
+    except:
+        img = Image.new("RGBA", (1400, 800), (40,40,40))
+    
     draw = ImageDraw.Draw(img)
-
     active = get_active_pipes()
 
     # Draw pipes
@@ -90,7 +124,7 @@ def run():
 
     # --- FIXED P&ID (no scrolling) ---
     with col_pid:
-        st.image(render_pid(), use_container_width=True)
+        st.image(render_pid(), use_column_width=True)
 
     # --- SCROLLABLE VALVE CONTROLS ---
     with col_controls:
@@ -107,6 +141,6 @@ def run():
             current = st.session_state.valve_states[tag]
             if st.button(f"{'OPEN' if not current else 'CLOSE'} {tag}", key=tag):
                 st.session_state.valve_states[tag] = not current
-                st.rerun()
+                st.experimental_rerun()
 
         st.markdown("</div>", unsafe_allow_html=True)
