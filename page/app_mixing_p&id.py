@@ -1,4 +1,4 @@
-# app_mixing_pid.py - Mixing Page
+# app_mixing_p&id.py - Mixing Area Page
 import streamlit as st
 from PIL import Image, ImageDraw
 import json, os
@@ -13,7 +13,7 @@ def find_file(filename, folders=["assets", "data", "."]):
             return path
     return None
 
-PID_FILE = find_file("p_id_mixing.png", ["assets"])
+PID_FILE = find_file("p&id_mixing.png", ["assets"])
 VALVES_FILE = find_file("valves_mixing.json", ["data"])
 PIPES_FILE = find_file("pipes_mixing.json", ["data"])
 
@@ -39,7 +39,7 @@ for idx, pipe in enumerate(pipes_raw):
     pipe["tag"] = f"P{idx+1}"
     pipes.append(pipe)
 
-# ===================== MAP VALVES TO PIPE TAGS SAFELY =====================
+# ===================== MAP VALVES TO PIPE TAGS =====================
 valves = {}
 for v_tag, vdata in valves_raw.items():
     connected_tags = []
