@@ -145,7 +145,7 @@ def render_system(valves, pipes, image_path, system_name):
         valve_color = (0, 255, 0) if is_open else (255, 0, 0)  # Green if open, red if closed
         
         # Draw valve
-        draw.ellipse([x-12, y-12, x+12, y+12], 
+        draw.ellipse([x-6, y-6, x+6, y+6], 
                     fill=valve_color, outline="white", width=3)
         
         # Show connected pipe count
