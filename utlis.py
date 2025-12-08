@@ -1,4 +1,6 @@
-import os
+mport os
+return None
+idx = max(0, min(self.index - 1, len(self.df) - 1))
 return self.df.iloc[idx].to_dict()
 
 
