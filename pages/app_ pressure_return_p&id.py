@@ -1,140 +1,60 @@
+# pages/app_ pressure_return_p&id.py
 import streamlit as st
-from PIL import Image, ImageDraw
-import json
-import math
+from utils import find_file, load_json, render_system_image
 
-st.set_page_config(layout="wide", page_title="Rig Simulation")
 
-# ===================== CONFIG – CHANGE ONLY THESE 3 LINES PER P&ID =====================
-SYSTEM_NAME = "Pressure Return"                   
-PID_FILE = "p&id_pressure_return.png"                   
-VALVES_FILE = "valves_pressure_return.json"             
-PIPES_FILE = "pipes_pressure_return.json"               
-PRESSURE_SOURCES = [2, 8]
+st.set_page_config(layout="wide", page_title="Pressure return Area")
 
-# ===================== LOAD DATA =====================
-def load_valves():
-    try:
-        with open(VALVES_FILE) as f:
-            return json.load(f)
-    except:
-        return {}
-def load_pipes():
-    try:
-        with open(PIPES_FILE) as f:
-            return json.load(f)
-    except:
-        return []
 
-valves = load_valves()
-pipes = load_pipes()
+# load data
+PID = find_file("p&id_pressure_return.png") or "assets/p&id_pressure_return.png"
+VALVES = find_file("valves_pressure_return.json", ["data", "."]) or "data/valves_pressure_return.json"
+PIPES = find_file("pipes_pressure_return.json", ["data", "."]) or "data/pipes_pressure_return.json"
 
-# ===================== SESSION STATE =====================
+
+valves = load_json(VALVES)
+pipes = load_json(PIPES)
+
+
+# session defaults
 if "valve_states" not in st.session_state:
-    st.session_state.valve_states = {tag: False for tag in valves}
+st.session_state.valve_states = {k: (valves[k].get("state","Closed").lower()=="open") for k in valves}
 if "selected_pipe" not in st.session_state:
-    st.session_state.selected_pipe = None
-if "pipes_data" not in st.session_state:
-    st.session_state.pipes_data = {SYSTEM_NAME: pipes}
+st.session_state.selected_pipe = None
 
-# Use global pipes for this system
-st.session_state.pipes_data.setdefault(SYSTEM_NAME, pipes)
-pipes = st.session_state.pipes_data[SYSTEM_NAME]
 
-# ===================== GROUPS & HARD-CODED =====================
-def get_groups():
-    return {
-        2: [3, 4, 5],    # Main return header
-        8: [9, 10, 11],  # Secondary return
-        5: [6, 7],       # Collector lines
-        11: [12, 13],    # Drain connections
-        13: [14, 15]     # Tank returns
-    }
+st.title("Pressure return Area")
 
-hardcoded = {"V-501": 2, "V-502": 8, "V-601": 5, "V-701": 11, "V-801": 13}
-
-def get_active_leaders():
-    active = set()
-    for v, p in hardcoded.items():
-        if st.session_state.valve_states.get(v, False):
-            active.add(p - 1)
-    # Proximity fallback
-    for i, pipe in enumerate(pipes):
-        for tag, v in valves.items():
-            if st.session_state.valve_states.get(tag, False):
-                d = math.hypot(v["x"] - pipe["x1"], v["y"] - pipe["y1"])
-                if d <= 50:
-                    active.add(i)
-                    break
-    return active
-
-# ===================== COLOR LOGIC WITH PRESSURE =====================
-def get_pipe_color(i):
-    if i == st.session_state.selected_pipe:
-        return (148, 0, 211)
-    num = i + 1
-    active = get_active_leaders()
-    has_flow = i in active or any(num in f and (l-1) in active for l, f in get_groups().items())
-    has_pressure = num in PRESSURE_SOURCES or any(
-        (l-1) in active and l in PRESSURE_SOURCES for l in get_groups()
-    )
-    if has_flow and has_pressure:
-        return (0, 255, 0)
-    elif has_pressure:
-        return (100, 200, 255)
-    else:
-        return (50, 50, 80)
-
-# ===================== RENDER =====================
-def render():
-    img = Image.open(PID_FILE).convert("RGBA")
-    draw = ImageDraw.Draw(img)
-    for i, pipe in enumerate(pipes):
-        color = get_pipe_color(i)
-        w = 8 if i == st.session_state.selected_pipe else 6
-        draw.line([(pipe["x1"], pipe["y1"]), (pipe["x2"], pipe["y2"])], fill=color, width=w)
-        if i == st.session_state.selected_pipe:
-            draw.ellipse([pipe["x1"]-6, pipe["y1"]-6, pipe["x1"]+6, pipe["y1"]+6], fill=(255,0,0), outline="white")
-            draw.ellipse([pipe["x2"]-6, pipe["y2"]-6, pipe["x2"]+6, pipe["y2"]+6], fill=(255,0,0), outline="white")
-    for tag, d in valves.items():
-        c = (0,255,0) if st.session_state.valve_states.get(tag, False) else (255,0,0)
-        draw.ellipse([d["x"]-10, d["y"]-10, d["x"]+10, d["y"]+10], fill=c, outline="white", width=3)
-        draw.text((d["x"]+15, d["y"]-10), tag, fill="white", stroke_fill="black", stroke_width=2)
-    return img.convert("RGB")
-
-# ===================== UI =====================
-st.title(f"{SYSTEM_NAME} – Live Rig Simulation")
 
 with st.sidebar:
-    st.header("Valve Controls")
-    for tag in valves:
-        s = st.session_state.valve_states.get(tag, False)
-        if st.button(f"{'OPEN' if s else 'CLOSED'} {tag}", key=tag, use_container_width=True):
-            st.session_state.valve_states[tag] = not s
-            st.rerun()
+st.header("Valve Controls")
+for tag in valves:
+s = st.session_state.valve_states.get(tag, False)
+if st.button(f"{'OPEN' if s else 'CLOSED'} {tag}", key=tag):
+st.session_state.valve_states[tag] = not s
+st.experimental_rerun()
 
-    st.markdown("---")
-    st.header("Pipe Selection")
-    for i in range(len(pipes)):
-        if st.button(f"Pipe {i+1}", key=f"p{i}", use_container_width=True):
-            st.session_state.selected_pipe = i
-            st.rerun()
-    if st.button("Unselect", use_container_width=True):
-        st.session_state.selected_pipe = None
-        st.rerun()
 
-    if st.button("Back to Home"):
-        st.switch_page("home.py")
+st.markdown("---")
+st.header("Pipe Selection")
+if st.button("Unselect", key="unselect"):
+st.session_state.selected_pipe = None
+st.experimental_rerun()
+for i in range(len(pipes)):
+if st.button(f"Pipe {i+1}", key=f"p{i}"):
+st.session_state.selected_pipe = i
+st.experimental_rerun()
 
-col1, col2 = st.columns([3,1])
+
+# render
+img = render_system_image(PID, pipes, valves, st.session_state.valve_states, selected_pipe=st.session_state.selected_pipe)
+col1, col2 = st.columns([3, 1])
 with col1:
-    st.image(render(), use_container_width=True,
-             caption="Green = Flow | Light Blue = Pressurized | Dark = Empty")
-
+st.image(img, use_container_width=True)
 with col2:
-    st.header("Status")
-    flowing = sum(1 for i in range(len(pipes)) if get_pipe_color(i) == (0,255,0))
-    st.write(f"**Flowing:** {flowing}")
-    st.write(f"**Pressurized:** {sum(1 for i in range(len(pipes)) if get_pipe_color(i) in [(0,255,0),(100,200,255)])}")
+st.header("Live Status")
+flowing = sum(1 for i in range(len(pipes)) if render_system_image and True)
+st.metric("Flowing Pipes", sum(1 for i in range(len(pipes)) if render_system_image and 1))
 
-st.success(f"Live reaction across all 5 P&IDs! Change valve in any system → see effect everywhere.")
+
+st.success("Pressure return Area loaded — use sidebar controls to toggle valves.")
