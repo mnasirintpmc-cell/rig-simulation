@@ -2,7 +2,7 @@
   "system": "mixing",
   "connections": {
     "v-101": {
-      "connected_pipes": [1,16],
+      "pipes_mixing.json": [1,16],
       "description": "Main supply valve"
     },
     "v-102": {
