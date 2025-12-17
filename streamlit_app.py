@@ -1,4 +1,4 @@
-# streamlit_app.py - FIXED INDENTATION
+# streamlit_app.py - CALIBRATION MODE FOR PIPE-VALVE CONNECTIONS
 import streamlit as st
 from PIL import Image, ImageDraw
 import json
@@ -15,14 +15,12 @@ if 'current_system' not in st.session_state:
     st.session_state.current_system = "home"
 if 'valve_states' not in st.session_state:
     st.session_state.valve_states = {}
-if 'active_pipes' not in st.session_state:
-    st.session_state.active_pipes = {}
+if 'calibration_mode' not in st.session_state:
+    st.session_state.calibration_mode = False
+if 'selected_valve' not in st.session_state:
+    st.session_state.selected_valve = None
 if 'selected_pipes' not in st.session_state:
-    st.session_state.selected_pipes = []
-if 'selected_valve_for_pipes' not in st.session_state:
-    st.session_state.selected_valve_for_pipes = None
-if 'show_pipe_selector' not in st.session_state:
-    st.session_state.show_pipe_selector = False
+    st.session_state.selected_pipes = set()
 
 # System files mapping
 SYSTEM_FILES = {
@@ -86,23 +84,24 @@ def save_valves(system, valves):
     config = SYSTEM_FILES[system]
     with open(config["valves"], 'w') as f:
         json.dump(valves, f, indent=2)
+    st.success(f"✅ Saved valve connections to {config['valves']}")
 
-# ==================== DIRECT MAPPING LOGIC ====================
+# ==================== PIPE STATUS LOGIC ====================
 def get_pipe_status(pipe_index, valves, valve_states):
-    pipe_display_num = pipe_index + 1
+    """Check if pipe is controlled by any open valve"""
+    pipe_num = pipe_index + 1  # Convert to 1-based
     
     for valve_tag, valve_data in valves.items():
-        if valve_states.get(valve_tag, False):
+        if valve_states.get(valve_tag, False):  # Valve is OPEN
             connected_pipes = valve_data.get("connected_pipes", [])
-            if pipe_display_num in connected_pipes:
+            if pipe_num in connected_pipes:
                 return "active"
     
     return "inactive"
 
-# ==================== SIMPLE RENDER ====================
-def render_system(valves, pipes, image_path, system_name):
-    """Render with DIRECT valve-to-pipe mapping"""
-    # Load image
+# ==================== RENDER ====================
+def render_system(valves, pipes, image_path):
+    """Render system with valve and pipe states"""
     try:
         img = Image.open(image_path).convert("RGBA")
     except:
@@ -110,53 +109,52 @@ def render_system(valves, pipes, image_path, system_name):
     
     draw = ImageDraw.Draw(img)
     
-    # Draw all pipes first
+    # Draw pipes
     for i, pipe in enumerate(pipes):
         status = get_pipe_status(i, valves, st.session_state.valve_states)
         
         if status == "active":
-            color = (0, 255, 0)  # GREEN - controlled by open valve
-            width = 8
+            color = (0, 255, 0)  # GREEN
+            width = 6
         else:
-            color = (100, 100, 100)  # GRAY - inactive
+            color = (50, 50, 80)  # DARK BLUE
             width = 4
         
         draw.line([(pipe["x1"], pipe["y1"]), (pipe["x2"], pipe["y2"])], 
                  fill=color, width=width)
         
-        # Label pipe number
-        mid_x = (pipe["x1"] + pipe["x2"]) // 2
-        mid_y = (pipe["y1"] + pipe["y2"]) // 2
-        draw.text((mid_x, mid_y), str(i+1), fill="white")
+        # Show pipe number if in calibration mode
+        if st.session_state.calibration_mode:
+            mid_x = (pipe["x1"] + pipe["x2"]) // 2
+            mid_y = (pipe["y1"] + pipe["y2"]) // 2
+            pipe_num = i + 1
+            draw.text((mid_x-5, mid_y-5), str(pipe_num), 
+                     fill="white", stroke_fill="black")
     
-    # Draw valves on top - YOUR EXACT SIZE [x-10, y-10, x+10, y+10]
+    # Draw valves
     for valve_tag, valve_data in valves.items():
         x, y = valve_data["x"], valve_data["y"]
         is_open = st.session_state.valve_states.get(valve_tag, False)
         
         # Valve color
-        valve_color = (0, 255, 0) if is_open else (255, 0, 0)
+        if valve_tag == st.session_state.selected_valve:
+            color = (180, 0, 255)  # PURPLE for selected valve in calibration
+        else:
+            color = (0, 255, 0) if is_open else (255, 0, 0)
         
         # Draw valve - YOUR EXACT SIZE
-        draw.ellipse([x-10, y-10, x+10, y+10],  # ← FIXED TO YOUR SIZE
-                    fill=valve_color, outline="white", width=3)
-        
-        # Show connected pipe count
-        connected = valve_data.get("connected_pipes", [])
-        if connected:
-            draw.text((x-6, y-8), str(len(connected)), 
-                     fill="white", stroke_fill="black")
+        draw.ellipse([x-10, y-10, x+10, y+10], 
+                    fill=color, outline="white", width=3)
         
         # Valve label
-        draw.text((x+15, y-12), valve_tag, 
-                 fill="white", stroke_fill="black")
+        draw.text((x+15, y-10), valve_tag, 
+                 fill="white", stroke_fill="black", stroke_width=2)
     
     return img.convert("RGB")
 
 # ==================== HOME PAGE ====================
 if st.session_state.current_system == "home":
-    st.title("🏭 Rig Simulation - Direct Valve Control")
-    st.markdown("### Click a system to toggle valves and see EXACT pipe connections")
+    st.title("🏭 Rig Simulation with Calibration Mode")
     
     cols = st.columns(5)
     systems = [
@@ -174,7 +172,7 @@ if st.session_state.current_system == "home":
                 st.rerun()
     
     st.markdown("---")
-    st.info("**How it works:** Each valve JSON has a 'connected_pipes' list. When you open a valve, ONLY those specific pipes turn GREEN.")
+    st.info("**Toggle Calibration Mode** to connect pipes to valves. **Normal Mode** to simulate flow.")
 
 # ==================== SYSTEM PAGE ====================
 else:
@@ -189,8 +187,17 @@ else:
         if tag not in st.session_state.valve_states:
             st.session_state.valve_states[tag] = False
     
-    # Header
-    st.title(f"{config['name']}")
+    # Header with calibration toggle
+    col_title, col_calib = st.columns([3, 1])
+    with col_title:
+        st.title(f"{config['name']}")
+    with col_calib:
+        if st.button("🔧 Calibration Mode" if not st.session_state.calibration_mode else "🏁 Normal Mode",
+                    use_container_width=True):
+            st.session_state.calibration_mode = not st.session_state.calibration_mode
+            st.session_state.selected_valve = None
+            st.session_state.selected_pipes = set()
+            st.rerun()
     
     if st.button("← Back to Home"):
         st.session_state.current_system = "home"
@@ -198,257 +205,238 @@ else:
     
     st.markdown("---")
     
-    # Two column layout
+    # Main layout
     col_viz, col_controls = st.columns([3, 1])
     
     with col_controls:
-        st.header("🎛️ Valve Controls")
-        
-        # Show valve connection info
-        for tag, valve_data in valves.items():
-            is_open = st.session_state.valve_states.get(tag, False)
-            connected_pipes = valve_data.get("connected_pipes", [])
+        if st.session_state.calibration_mode:
+            st.header("🎯 CALIBRATION MODE")
+            st.warning("Select a valve, then select pipes it should control")
             
-            # Button with clear status
-            if is_open:
-                btn_text = f"🟢 OPEN: {tag}"
-            else:
-                btn_text = f"🔴 CLOSED: {tag}"
+            # Valve selection for calibration
+            st.subheader("1. Select Valve")
+            valve_list = list(valves.keys())
+            selected_valve = st.selectbox("Choose valve:", valve_list, 
+                                         index=valve_list.index(st.session_state.selected_valve) 
+                                         if st.session_state.selected_valve in valve_list else 0)
             
-            col_btn, col_info = st.columns([2, 1])
+            if st.button("🎯 Select This Valve", use_container_width=True):
+                st.session_state.selected_valve = selected_valve
+                # Load current connections
+                current_valve = valves.get(selected_valve, {})
+                current_pipes = current_valve.get("connected_pipes", [])
+                st.session_state.selected_pipes = set(current_pipes)
+                st.rerun()
             
-            with col_btn:
-                if st.button(btn_text, key=f"btn_{tag}", use_container_width=True):
-                    st.session_state.valve_states[tag] = not is_open
-                    st.rerun()
-            
-            with col_info:
-                if connected_pipes:
-                    st.write(f"→ {len(connected_pipes)} pipes")
+            if st.session_state.selected_valve:
+                st.success(f"**Selected:** {st.session_state.selected_valve}")
                 
-                # Small button to select this valve for pipe assignment
-                if st.button("📝", key=f"select_{tag}", help=f"Select {tag} for pipe assignment"):
-                    st.session_state.selected_valve_for_pipes = tag
-                    st.session_state.show_pipe_selector = True
+                # Show current connections
+                current_valve = valves.get(st.session_state.selected_valve, {})
+                current_pipes = current_valve.get("connected_pipes", [])
+                st.write(f"**Currently controls:** {current_pipes}")
+                
+                # Pipe selection
+                st.subheader("2. Select Pipes")
+                st.write(f"Total pipes in system: {len(pipes)}")
+                
+                # Select all/none buttons
+                col_all, col_none = st.columns(2)
+                with col_all:
+                    if st.button("✅ Select All", use_container_width=True):
+                        st.session_state.selected_pipes = set(range(1, len(pipes) + 1))
+                        st.rerun()
+                with col_none:
+                    if st.button("❌ Clear All", use_container_width=True):
+                        st.session_state.selected_pipes = set()
+                        st.rerun()
+                
+                # Pipe grid - ALL YOUR PIPES
+                st.subheader("📋 Pipe Selection")
+                st.write("Click pipe numbers to select/deselect:")
+                
+                # Show pipes in a grid
+                cols_per_row = 6
+                for row_start in range(0, len(pipes), cols_per_row):
+                    cols = st.columns(cols_per_row)
+                    for col_idx in range(cols_per_row):
+                        pipe_num = row_start + col_idx + 1
+                        if pipe_num <= len(pipes):
+                            with cols[col_idx]:
+                                is_selected = pipe_num in st.session_state.selected_pipes
+                                btn_text = f"✅{pipe_num}" if is_selected else f"⬜{pipe_num}"
+                                if st.button(btn_text, key=f"pipe_{pipe_num}", 
+                                           use_container_width=True):
+                                    if is_selected:
+                                        st.session_state.selected_pipes.remove(pipe_num)
+                                    else:
+                                        st.session_state.selected_pipes.add(pipe_num)
+                                    st.rerun()
+                
+                # Show selected count
+                st.write(f"**Selected:** {len(st.session_state.selected_pipes)} pipes")
+                if st.session_state.selected_pipes:
+                    st.write(f"Pipes: {sorted(st.session_state.selected_pipes)}")
+                
+                # Save button
+                st.subheader("3. Save Connections")
+                if st.button("💾 Save to Valve JSON", use_container_width=True, type="primary"):
+                    if st.session_state.selected_valve:
+                        # Update valve data
+                        valves[st.session_state.selected_valve]["connected_pipes"] = sorted(st.session_state.selected_pipes)
+                        save_valves(system, valves)
+                        st.rerun()
+                
+                # Reset button
+                if st.button("🔄 Deselect Valve", use_container_width=True):
+                    st.session_state.selected_valve = None
+                    st.session_state.selected_pipes = set()
                     st.rerun()
-        
-        st.markdown("---")
-        st.header("📊 Live Status")
-        
-        # Calculate active pipes
-        active_count = 0
-        for i in range(len(pipes)):
-            if get_pipe_status(i, valves, st.session_state.valve_states) == "active":
-                active_count += 1
-        
-        open_valves = sum(1 for v in st.session_state.valve_states.values() if v)
-        
-        st.metric("Active Pipes", active_count)
-        st.metric("Open Valves", f"{open_valves}/{len(valves)}")
-        
-        # Control buttons
-        st.markdown("---")
-        st.header("⚙️ Quick Actions")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("Open ALL", use_container_width=True):
-                for tag in valves:
-                    st.session_state.valve_states[tag] = True
-                st.rerun()
-        
-        with col2:
-            if st.button("Close ALL", use_container_width=True):
-                for tag in valves:
-                    st.session_state.valve_states[tag] = False
-                st.rerun()
-        
-        # Show connection details
-        st.markdown("---")
-        st.header("🔗 Connections")
-        
-        for tag, valve_data in valves.items():
-            is_open = st.session_state.valve_states.get(tag, False)
-            connected = valve_data.get("connected_pipes", [])
             
-            if connected:
-                status = "🟢" if is_open else "🔴"
-                st.write(f"{status} **{tag}** → Pipes: {connected}")
+            # Show all valve connections
+            st.markdown("---")
+            st.subheader("📊 All Valve Connections")
+            for tag, data in valves.items():
+                connected = data.get("connected_pipes", [])
+                if connected:
+                    st.write(f"**{tag}:** {connected}")
+                else:
+                    st.write(f"**{tag}:** ❌ No connections")
+        
+        else:
+            # NORMAL MODE - Valve controls
+            st.header("🎛️ Valve Controls")
+            
+            for tag in valves:
+                s = st.session_state.valve_states.get(tag, False)
+                
+                # Get connected pipes for display
+                valve_data = valves.get(tag, {})
+                connected = valve_data.get("connected_pipes", [])
+                pipe_info = f" → Pipes: {connected}" if connected else ""
+                
+                button_text = f"{'OPEN' if s else 'CLOSED'} {tag}{pipe_info}"
+                
+                if st.button(button_text, key=tag, use_container_width=True):
+                    st.session_state.valve_states[tag] = not s
+                    st.rerun()
+            
+            st.markdown("---")
+            st.header("Pipe Selection")
+            
+            for i in range(len(pipes)):
+                if st.button(f"Pipe {i+1}", key=f"p{i}", use_container_width=True):
+                    # Just show info about this pipe
+                    controlling_valves = []
+                    for tag, data in valves.items():
+                        connected = data.get("connected_pipes", [])
+                        if (i+1) in connected:
+                            controlling_valves.append(tag)
+                    
+                    if controlling_valves:
+                        st.sidebar.info(f"Pipe {i+1} controlled by: {controlling_valves}")
+                    else:
+                        st.sidebar.warning(f"Pipe {i+1} not controlled by any valve")
+            
+            if st.button("Unselect", use_container_width=True):
+                st.session_state.selected_valve = None
+                st.rerun()
+            
+            if st.button("Back to Home"):
+                st.session_state.current_system = "home"
+                st.rerun()
+            
+            # Stats
+            st.markdown("---")
+            st.header("📊 Status")
+            
+            active_count = 0
+            for i in range(len(pipes)):
+                if get_pipe_status(i, valves, st.session_state.valve_states) == "active":
+                    active_count += 1
+            
+            open_valves = sum(1 for v in st.session_state.valve_states.values() if v)
+            
+            st.metric("Active Pipes", active_count)
+            st.metric("Open Valves", f"{open_valves}/{len(valves)}")
+            st.metric("Total Pipes", len(pipes))
     
     with col_viz:
         # Render and display
         if os.path.exists(image_path):
-            img = render_system(valves, pipes, image_path, system)
-            st.image(img, use_container_width=True, 
-                    caption="🟢 GREEN pipes = Controlled by OPEN valves | 🔴 RED valve = CLOSED | 🟢 GREEN valve = OPEN")
+            img = render_system(valves, pipes, image_path)
+            caption = "🔧 CALIBRATION MODE - Purple valve = selected for configuration" if st.session_state.calibration_mode else "Green = Flow | Dark = Empty"
+            st.image(img, use_container_width=True, caption=caption)
         else:
             st.error(f"Image not found: {image_path}")
-            with st.expander("🔍 Debug: Show loaded data"):
-                st.write("**Valves (first 3):**")
-                for tag, data in list(valves.items())[:3]:
-                    st.json({tag: data})
-                st.write("**Pipes (first 3):**")
-                st.json(pipes[:3] if pipes else [])
+            
+            # Show pipe data
+            with st.expander("📋 Show All Pipes"):
+                st.write(f"**Total Pipes:** {len(pipes)}")
+                for i, pipe in enumerate(pipes):
+                    st.write(f"**Pipe {i+1}:** Start({pipe['x1']},{pipe['y1']}) → End({pipe['x2']},{pipe['y2']})")
         
-        # Active pipes list
-        st.markdown("---")
-        st.subheader("✅ Active Pipes (Green)")
-        
-        active_list = []
-        for i in range(len(pipes)):
-            if get_pipe_status(i, valves, st.session_state.valve_states) == "active":
-                controlling_valves = []
-                for tag, valve_data in valves.items():
-                    if st.session_state.valve_states.get(tag, False):
-                        connected = valve_data.get("connected_pipes", [])
-                        if (i+1) in connected:
-                            controlling_valves.append(tag)
-                
-                if controlling_valves:
-                    active_list.append(f"**Pipe {i+1}** ← {', '.join(controlling_valves)}")
-        
-        if active_list:
-            for item in active_list:
-                st.write(f"• {item}")
-        else:
-            st.write("No active pipes. Open valves to activate their connected pipes.")
+        # Active pipes info
+        if not st.session_state.calibration_mode:
+            st.markdown("---")
+            st.subheader("✅ Active Pipes")
+            
+            active_pipes = []
+            for i in range(len(pipes)):
+                if get_pipe_status(i, valves, st.session_state.valve_states) == "active":
+                    active_pipes.append(i+1)
+            
+            if active_pipes:
+                st.write(f"**Pipes with flow:** {active_pipes}")
+            else:
+                st.write("No active pipes. Open valves to activate flow.")
 
-# ==================== PIPE SELECTION TOOL ====================
+# ==================== CALIBRATION GUIDE ====================
 with st.sidebar:
-    st.title("🔧 Pipe Connection Tool")
+    st.title("📖 Calibration Guide")
     
-    # Toggle visibility
-    if st.button("🔧 Show/Hide Pipe Selector"):
-        st.session_state.show_pipe_selector = not st.session_state.show_pipe_selector
-        st.rerun()
-    
-    if st.session_state.show_pipe_selector and st.session_state.current_system != "home":
-        st.warning("🛠️ **PIPE SELECTION ACTIVE**")
-        
-        if st.session_state.selected_valve_for_pipes:
-            st.subheader(f"🔧 Configuring: {st.session_state.selected_valve_for_pipes}")
+    if st.session_state.current_system != "home":
+        if st.session_state.calibration_mode:
+            st.success("**CALIBRATION MODE ACTIVE**")
+            st.write("1. **Select a valve** from dropdown")
+            st.write("2. **Click pipe numbers** to select/deselect")
+            st.write("3. **Click 'Save to Valve JSON'**")
+            st.write("4. **Switch to Normal Mode** to test")
+            st.write("5. **Open valves** to see connected pipes turn GREEN")
             
-            # Show current connections
-            current_valve = valves.get(st.session_state.selected_valve_for_pipes, {})
-            current_pipes = current_valve.get("connected_pipes", [])
-            st.write(f"**Currently controls:** {current_pipes}")
-            
-            # Pipe selection grid - ALL PIPES
-            st.subheader("📋 Select Pipes (Click to toggle)")
-            
-            # Create a grid of buttons - FIXED: Now shows ALL pipes
-            cols_per_row = 4
-            for row_start in range(0, len(pipes), cols_per_row):
-                cols = st.columns(cols_per_row)
-                row_pipes = pipes[row_start:row_start + cols_per_row]
+            # Quick load for mixing system (your 22 pipes)
+            if system == "mixing" and len(pipes) == 22:
+                st.markdown("---")
+                st.subheader("⚡ Quick Setup for Mixing")
                 
-                for col_idx, pipe_data in enumerate(row_pipes):
-                    if col_idx < len(cols):
-                        pipe_num = row_start + col_idx + 1
-                        is_selected = pipe_num in st.session_state.selected_pipes
-                        
-                        with cols[col_idx]:
-                            if st.button(f"{'✅' if is_selected else '⬜'} {pipe_num}", 
-                                       key=f"select_pipe_{pipe_num}",
-                                       use_container_width=True):
-                                if pipe_num in st.session_state.selected_pipes:
-                                    st.session_state.selected_pipes.remove(pipe_num)
-                                else:
-                                    st.session_state.selected_pipes.append(pipe_num)
-                                st.rerun()
-            
-            # Show selected pipes
-            if st.session_state.selected_pipes:
-                st.write(f"**Selected pipes:** {sorted(st.session_state.selected_pipes)}")
-                
-                # Action buttons
-                st.subheader("💾 Save Connections")
-                
-                col_add, col_replace = st.columns(2)
-                with col_add:
-                    if st.button("➕ Add Selected", use_container_width=True):
-                        # Add pipes to valve
-                        if "connected_pipes" not in current_valve:
-                            current_valve["connected_pipes"] = []
-                        
-                        for pipe_num in st.session_state.selected_pipes:
-                            if pipe_num not in current_valve["connected_pipes"]:
-                                current_valve["connected_pipes"].append(pipe_num)
-                        
-                        valves[st.session_state.selected_valve_for_pipes] = current_valve
-                        save_valves(system, valves)
-                        st.success(f"Added pipes {sorted(st.session_state.selected_pipes)}")
-                        st.session_state.selected_pipes = []
-                        st.rerun()
-                
-                with col_replace:
-                    if st.button("🔄 Replace All", use_container_width=True):
-                        # Replace all pipes
-                        current_valve["connected_pipes"] = sorted(st.session_state.selected_pipes)
-                        valves[st.session_state.selected_valve_for_pipes] = current_valve
-                        save_valves(system, valves)
-                        st.success(f"Now controls pipes {sorted(st.session_state.selected_pipes)}")
-                        st.session_state.selected_pipes = []
-                        st.rerun()
-                
-                if st.button("🗑️ Clear All", use_container_width=True):
-                    # Clear all connections
-                    current_valve["connected_pipes"] = []
-                    valves[st.session_state.selected_valve_for_pipes] = current_valve
-                    save_valves(system, valves)
-                    st.success("Cleared all pipe connections")
-                    st.session_state.selected_pipes = []
-                    st.rerun()
-            
-            # Quick select buttons
-            st.subheader("⚡ Quick Select")
-            col_q1, col_q2, col_q3 = st.columns(3)
-            with col_q1:
-                if st.button("1-5", key="q1"):
-                    st.session_state.selected_pipes = [1, 2, 3, 4, 5]
-                    st.rerun()
-            with col_q2:
-                if st.button("6-10", key="q2"):
-                    st.session_state.selected_pipes = [6, 7, 8, 9, 10]
-                    st.rerun()
-            with col_q3:
-                if st.button("Clear", key="q3"):
-                    st.session_state.selected_pipes = []
-                    st.rerun()
-            
-            # Finish button
-            if st.button("✅ Done Configuring", use_container_width=True):
-                st.session_state.selected_valve_for_pipes = None
-                st.session_state.show_pipe_selector = False
-                st.session_state.selected_pipes = []
-                st.rerun()
+                if st.button("Load All 22 Pipes as Options"):
+                    st.info("Pipes 1-22 are now available for selection")
+                    # Just show info
+                    st.write("Available pipes: 1 through 22")
         
         else:
-            st.info("👆 Click the 📝 button next to a valve in the main panel to select it for pipe configuration")
-            
-            # Show all valve connections
-            st.subheader("📋 Current Valve Connections")
-            for tag, data in valves.items():
-                connected = data.get("connected_pipes", [])
-                if connected:
-                    st.write(f"**{tag}**: {connected}")
-                else:
-                    st.write(f"**{tag}**: ❌ No pipes")
-    
-    elif not st.session_state.show_pipe_selector:
-        st.info("🔧 Pipe selector is hidden. Click 'Show/Hide Pipe Selector' to configure valve-pipe connections.")
+            st.info("**NORMAL MODE**")
+            st.write("• **Click valves** to open/close them")
+            st.write("• **Connected pipes** will turn GREEN")
+            st.write("• **Enable Calibration Mode** to change connections")
         
-        # Quick debug
-        if st.session_state.current_system != "home":
-            if st.button("Test Pipe 1 Connection"):
-                controlling = []
-                for tag, data in valves.items():
-                    connected = data.get("connected_pipes", [])
-                    if 1 in connected:
-                        controlling.append(tag)
-                
-                if controlling:
-                    st.success(f"✅ Pipe 1 controlled by: {controlling}")
-                else:
-                    st.error("❌ Pipe 1 not controlled by any valve")
-                    st.info("Use the Pipe Connection Tool to add pipes to valves")
+        # Debug info
+        st.markdown("---")
+        st.subheader("🔍 System Info")
+        st.write(f"**System:** {system}")
+        st.write(f"**Valves:** {len(valves)}")
+        st.write(f"**Pipes:** {len(pipes)}")
+        
+        # Check valve connections
+        st.subheader("🔗 Connection Check")
+        valves_without_connections = []
+        for tag, data in valves.items():
+            connected = data.get("connected_pipes", [])
+            if not connected:
+                valves_without_connections.append(tag)
+        
+        if valves_without_connections:
+            st.error(f"❌ Valves without connections: {valves_without_connections}")
+            st.info("Use Calibration Mode to add pipe connections")
+        else:
+            st.success("✅ All valves have connections!")
