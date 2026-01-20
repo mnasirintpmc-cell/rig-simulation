@@ -143,7 +143,7 @@ def render_system(valves, pipes, image_path):
             color = (0, 255, 0) if is_open else (255, 0, 0)
         
         # Draw valve - YOUR EXACT SIZE
-        draw.ellipse([x-10, y-10, x+10, y+10], 
+        draw.ellipse([x-7, y-7, x+7, y+7], 
                     fill=color, outline="white", width=3)
         
         # Valve label
