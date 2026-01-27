@@ -32,66 +32,23 @@ if "step" not in st.session_state:
 if "playing" not in st.session_state:
     st.session_state.playing = False
 
-if "last_tick" not in st.session_state:
-    st.session_state.last_tick = time.time()
+if "step_start_time" not in st.session_state:
+    st.session_state.step_start_time = None
 
 # =========================================================
-# SYSTEM DEFINITIONS
+# SYSTEM DEFINITIONS (SUPPLY SHOWN – OTHERS KEPT)
 # =========================================================
 SYSTEMS = {
-    "mixing": {
-        "name": "🔧 Mixing System",
-        "valves": "data/valves_mixing.json",
-        "pipes": "data/pipes_mixing.json",
-        "image": "assets/p&id_mixing.png",
-    },
     "supply": {
         "name": "⚡ Pressure Supply",
         "valves": "data/valves_pressure_in.json",
         "pipes": "data/pipes_pressure_in.json",
         "image": "assets/p&id_pressure_in.png",
-    },
-    "dgs": {
-        "name": "🎮 DGS System",
-        "valves": "data/valves_dgs.json",
-        "pipes": "data/pipes_dgs.json",
-        "image": "assets/p&id_dgs.png",
-    },
-    "return": {
-        "name": "🔄 Pressure Return",
-        "valves": "data/valves_pressure_return.json",
-        "pipes": "data/pipes_pressure_return.json",
-        "image": "assets/p&id_pressure_return.png",
-    },
-    "seal": {
-        "name": "🔒 Separation Seal",
-        "valves": "data/valves_separation_seal.json",
-        "pipes": "data/pipes_separation_seal.json",
-        "image": "assets/p&id_separation_seal.png",
-    },
+    }
 }
 
 # =========================================================
-# VALVE ALIGNMENT (NUMERIC TAGS)
-# =========================================================
-VALVE_ROLE_MAP = {
-    "CELL_PRESSURE": "101",
-    "INTER_PRESSURE": "201",
-    "BP_DE": "301",
-    "BP_NDE": "302",
-    "GAS_INJECTION": "401",
-}
-
-CSV_ROLE_MAP = {
-    "TST_CellPresDemand": "CELL_PRESSURE",
-    "TST_InterPresDemand": "INTER_PRESSURE",
-    "TST_InterBPDemand_DE": "BP_DE",
-    "TST_InterBPDemand_NDE": "BP_NDE",
-    "TST_GasInjectionDemand": "GAS_INJECTION",
-}
-
-# =========================================================
-# UTILITY FUNCTIONS
+# LOADERS
 # =========================================================
 def load_json(path):
     if os.path.exists(path):
@@ -104,36 +61,63 @@ def load_csv(upload):
     return pd.read_csv(upload, sep=";")
 
 
-def advance_step():
-    df = st.session_state.csv
-    duration = float(df.iloc[st.session_state.step]["TST_StepDuration"])
-    elapsed = time.time() - st.session_state.last_tick
+# =========================================================
+# CSV → VALVE LOGIC (ALIGNED TO YOUR VALVES)
+# =========================================================
+def apply_csv_to_valves(valves, row):
+    cell_pressure = float(row["TST_CellPresDemand"])
+    inter_pressure = float(row["TST_InterPresDemand"])
 
-    if elapsed >= max(duration, 0.1):
+    for tag in valves:
+        # Cell pressure inlet
+        if tag == "V-201":
+            st.session_state.valve_states[tag] = cell_pressure > 0
+
+        # Inter / supply manifold
+        elif tag.startswith("V-10"):
+            st.session_state.valve_states[tag] = inter_pressure > 0
+
+
+# =========================================================
+# STEP SEQUENCER
+# =========================================================
+def advance_step_if_needed():
+    df = st.session_state.csv
+    step = st.session_state.step
+    duration = float(df.iloc[step]["TST_StepDuration"])
+    now = time.time()
+
+    if st.session_state.step_start_time is None:
+        st.session_state.step_start_time = now
+        return
+
+    if now - st.session_state.step_start_time >= max(duration, 0.1):
         st.session_state.step += 1
-        st.session_state.last_tick = time.time()
+        st.session_state.step_start_time = now
 
         if st.session_state.step >= len(df):
             st.session_state.step = len(df) - 1
             st.session_state.playing = False
+            st.session_state.step_start_time = None
 
 
-def apply_csv_to_valves(valves, row):
-    for csv_col, role in CSV_ROLE_MAP.items():
-        valve_tag = VALVE_ROLE_MAP.get(role)
-        if valve_tag in valves:
-            st.session_state.valve_states[valve_tag] = float(row[csv_col]) > 0
-
-
+# =========================================================
+# PIPE ACTIVE CHECK (FIXED FOR YOUR JSON)
+# =========================================================
 def pipe_active(pipe_idx, valves):
     pipe_no = pipe_idx + 1
+
     for tag, data in valves.items():
         if st.session_state.valve_states.get(tag, False):
-            if pipe_no in data.get("connected_pipes", []):
+            connected = data.get("pipes_pressure_in.json", [])
+            if pipe_no in connected:
                 return True
     return False
 
 
+# =========================================================
+# P&ID RENDER
+# =========================================================
 def render_pid(image_path, valves, pipes):
     if os.path.exists(image_path):
         img = Image.open(image_path).convert("RGBA")
@@ -142,6 +126,7 @@ def render_pid(image_path, valves, pipes):
 
     draw = ImageDraw.Draw(img)
 
+    # Pipes
     for i, pipe in enumerate(pipes):
         active = pipe_active(i, valves)
         color = (0, 255, 0) if active else (70, 70, 100)
@@ -152,6 +137,7 @@ def render_pid(image_path, valves, pipes):
             width=width,
         )
 
+    # Valves
     for tag, valve in valves.items():
         x, y = valve["x"], valve["y"]
         open_ = st.session_state.valve_states.get(tag, False)
@@ -161,83 +147,65 @@ def render_pid(image_path, valves, pipes):
 
     return img.convert("RGB")
 
+
 # =========================================================
 # SIDEBAR
 # =========================================================
 with st.sidebar:
     st.title("🏭 Rig Control")
 
-    if st.button("🏠 Home"):
-        st.session_state.page = "home"
-
-    st.markdown("---")
-
-    csv_file = st.file_uploader("Upload CSV Test Sequence", type=["csv"])
-
+    csv_file = st.file_uploader("Upload CSV", type=["csv"])
     if csv_file:
         st.session_state.csv = load_csv(csv_file)
         st.session_state.step = 0
         st.session_state.playing = False
-        st.session_state.last_tick = time.time()
+        st.session_state.step_start_time = None
         st.success("CSV Loaded")
 
     if st.session_state.csv is not None:
-        st.markdown("---")
+        if st.button("▶ Play"):
+            st.session_state.playing = True
+            st.session_state.step_start_time = None
 
-        if st.button("▶ Play" if not st.session_state.playing else "⏸ Pause"):
-            st.session_state.playing = not st.session_state.playing
-            st.session_state.last_tick = time.time()
+        if st.button("⏸ Pause"):
+            st.session_state.playing = False
 
-# =========================================================
-# HOME PAGE
-# =========================================================
-if st.session_state.page == "home":
-    st.title("🏭 Rig Simulation – Home")
-
-    cols = st.columns(len(SYSTEMS))
-    for i, (key, system) in enumerate(SYSTEMS.items()):
-        with cols[i]:
-            if st.button(system["name"], use_container_width=True):
-                st.session_state.page = key
-
-    st.info("Upload CSV → select system → press Play")
-    st.stop()
 
 # =========================================================
-# SYSTEM PAGE
+# MAIN (SUPPLY SYSTEM)
 # =========================================================
-system_key = st.session_state.page
-config = SYSTEMS[system_key]
+cfg = SYSTEMS["supply"]
 
-valves = load_json(config["valves"])
-pipes = load_json(config["pipes"])
+valves = load_json(cfg["valves"])
+pipes = load_json(cfg["pipes"])
 
-for tag in valves:
-    st.session_state.valve_states.setdefault(tag, False)
+for v in valves:
+    st.session_state.valve_states.setdefault(v, False)
 
-# Auto-play
 if st.session_state.csv is not None:
-    if st.session_state.playing:
-        advance_step()
-        time.sleep(0.05)
-        st.rerun()
-
     row = st.session_state.csv.iloc[st.session_state.step]
     apply_csv_to_valves(valves, row)
 
+    if st.session_state.playing:
+        advance_step_if_needed()
+        time.sleep(0.05)
+        st.rerun()
+
 # =========================================================
-# STEP HEADER (THIS IS WHAT YOU WERE MISSING)
+# STATUS
 # =========================================================
 st.markdown("## ⏱ Test Step Status")
 
-total_steps = len(st.session_state.csv)
-current_step = st.session_state.step + 1
+total = len(st.session_state.csv)
+current = st.session_state.step + 1
 duration = float(row["TST_StepDuration"])
-elapsed = time.time() - st.session_state.last_tick
+elapsed = (
+    0 if st.session_state.step_start_time is None
+    else time.time() - st.session_state.step_start_time
+)
 
 c1, c2, c3, c4 = st.columns(4)
-
-c1.metric("Step", f"{current_step} / {total_steps}")
+c1.metric("Step", f"{current}/{total}")
 c2.metric("Duration (s)", duration)
 c3.metric("Elapsed (s)", f"{elapsed:.1f}")
 c4.metric("State", "▶ PLAYING" if st.session_state.playing else "⏸ PAUSED")
@@ -245,33 +213,9 @@ c4.metric("State", "▶ PLAYING" if st.session_state.playing else "⏸ PAUSED")
 # =========================================================
 # P&ID VIEW
 # =========================================================
-st.title(config["name"])
+st.title(cfg["name"])
+img = render_pid(cfg["image"], valves, pipes)
+st.image(img, use_container_width=True, caption="Green = Flow | Red = Closed Valve")
 
-image = render_pid(config["image"], valves, pipes)
-st.image(image, use_container_width=True, caption="Green = Flow | Red = Closed Valve")
-
-# =========================================================
-# STEP DATA TABLE
-# =========================================================
-st.markdown("---")
-st.subheader("📋 Current Step Data")
-
-display_cols = [
-    "TST_CellPresDemand",
-    "TST_InterPresDemand",
-    "TST_InterBPDemand_DE",
-    "TST_InterBPDemand_NDE",
-    "TST_GasInjectionDemand",
-    "TST_SpeedDem",
-    "TST_TempDemand",
-    "TST_TestMode",
-    "TST_MeasurementReq",
-]
-
-st.dataframe(
-    row[display_cols].to_frame("Value"),
-    use_container_width=True,
-)
-
-with st.expander("🔍 Full CSV Row"):
+with st.expander("🔍 CSV Row"):
     st.write(row)
