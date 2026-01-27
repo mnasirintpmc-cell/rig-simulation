@@ -33,7 +33,7 @@ if "last_tick" not in st.session_state:
     st.session_state.last_tick = time.time()
 
 # =========================================================
-# SYSTEM DEFINITIONS (RESTORED)
+# SYSTEM DEFINITIONS
 # =========================================================
 SYSTEMS = {
     "mixing": {
@@ -69,14 +69,22 @@ SYSTEMS = {
 }
 
 # =========================================================
-# CSV → VALVE LOGIC MAP (EDIT TAGS IF NEEDED)
+# VALVE ALIGNMENT (NUMERIC TAGS – HMI SAFE)
 # =========================================================
-CSV_VALVE_MAP = {
-    "TST_CellPresDemand": "V_CELL",
-    "TST_InterPresDemand": "V_INTER",
-    "TST_InterBPDemand_DE": "V_BP_DE",
-    "TST_InterBPDemand_NDE": "V_BP_NDE",
-    "TST_GasInjectionDemand": "V_GAS"
+VALVE_ROLE_MAP = {
+    "CELL_PRESSURE": "101",
+    "INTER_PRESSURE": "201",
+    "BP_DE": "301",
+    "BP_NDE": "302",
+    "GAS_INJECTION": "401"
+}
+
+CSV_ROLE_MAP = {
+    "TST_CellPresDemand": "CELL_PRESSURE",
+    "TST_InterPresDemand": "INTER_PRESSURE",
+    "TST_InterBPDemand_DE": "BP_DE",
+    "TST_InterBPDemand_NDE": "BP_NDE",
+    "TST_GasInjectionDemand": "GAS_INJECTION"
 }
 
 # =========================================================
@@ -95,10 +103,10 @@ def load_csv(upload):
 
 def advance_step():
     df = st.session_state.csv
-    dur = float(df.iloc[st.session_state.step]["TST_StepDuration"])
+    duration = float(df.iloc[st.session_state.step]["TST_StepDuration"])
     elapsed = time.time() - st.session_state.last_tick
 
-    if elapsed >= max(dur, 0.1):
+    if elapsed >= max(duration, 0.1):
         st.session_state.step += 1
         st.session_state.last_tick = time.time()
         if st.session_state.step >= len(df):
@@ -107,16 +115,17 @@ def advance_step():
 
 
 def apply_csv_to_valves(valves, row):
-    for col, tag in CSV_VALVE_MAP.items():
-        if tag in valves:
-            st.session_state.valve_states[tag] = float(row[col]) > 0
+    for csv_col, role in CSV_ROLE_MAP.items():
+        valve_tag = VALVE_ROLE_MAP.get(role)
+        if valve_tag in valves:
+            st.session_state.valve_states[valve_tag] = float(row[csv_col]) > 0
 
 
-def pipe_active(idx, valves):
-    pipe_no = idx + 1
-    for v, d in valves.items():
+def pipe_active(pipe_idx, valves):
+    pipe_no = pipe_idx + 1
+    for v, data in valves.items():
         if st.session_state.valve_states.get(v, False):
-            if pipe_no in d.get("connected_pipes", []):
+            if pipe_no in data.get("connected_pipes", []):
                 return True
     return False
 
@@ -129,17 +138,19 @@ def render_pid(image_path, valves, pipes):
 
     draw = ImageDraw.Draw(img)
 
+    # Pipes
     for i, p in enumerate(pipes):
         active = pipe_active(i, valves)
         color = (0, 255, 0) if active else (70, 70, 100)
         width = 6 if active else 4
         draw.line([(p["x1"], p["y1"]), (p["x2"], p["y2"])], fill=color, width=width)
 
+    # Valves
     for tag, v in valves.items():
         x, y = v["x"], v["y"]
         open_ = st.session_state.valve_states.get(tag, False)
-        c = (0, 255, 0) if open_ else (255, 0, 0)
-        draw.ellipse([x-7, y-7, x+7, y+7], fill=c, outline="white", width=2)
+        color = (0, 255, 0) if open_ else (255, 0, 0)
+        draw.ellipse([x-7, y-7, x+7, y+7], fill=color, outline="white", width=2)
         draw.text((x+10, y-10), tag, fill="white")
 
     return img.convert("RGB")
@@ -176,12 +187,12 @@ if st.session_state.page == "home":
     st.title("🏭 Rig Simulation – Home")
 
     cols = st.columns(len(SYSTEMS))
-    for i, (k, sys) in enumerate(SYSTEMS.items()):
+    for i, (key, sys) in enumerate(SYSTEMS.items()):
         with cols[i]:
             if st.button(sys["name"], use_container_width=True):
-                st.session_state.page = k
+                st.session_state.page = key
 
-    st.info("Select a system. CSV simulation drives valve activity.")
+    st.info("Select a system. CSV simulation drives valve behaviour.")
     st.stop()
 
 # =========================================================
