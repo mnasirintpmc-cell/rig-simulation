@@ -121,19 +121,16 @@ def advance_step():
 def apply_csv_to_valves(valves, row):
     for csv_col, role in CSV_ROLE_MAP.items():
         valve_tag = VALVE_ROLE_MAP.get(role)
-
         if valve_tag in valves:
             st.session_state.valve_states[valve_tag] = float(row[csv_col]) > 0
 
 
 def pipe_active(pipe_idx, valves):
     pipe_no = pipe_idx + 1
-
     for tag, data in valves.items():
         if st.session_state.valve_states.get(tag, False):
             if pipe_no in data.get("connected_pipes", []):
                 return True
-
     return False
 
 
@@ -149,7 +146,6 @@ def render_pid(image_path, valves, pipes):
         active = pipe_active(i, valves)
         color = (0, 255, 0) if active else (70, 70, 100)
         width = 6 if active else 4
-
         draw.line(
             [(pipe["x1"], pipe["y1"]), (pipe["x2"], pipe["y2"])],
             fill=color,
@@ -160,14 +156,7 @@ def render_pid(image_path, valves, pipes):
         x, y = valve["x"], valve["y"]
         open_ = st.session_state.valve_states.get(tag, False)
         color = (0, 255, 0) if open_ else (255, 0, 0)
-
-        draw.ellipse(
-            [x - 7, y - 7, x + 7, y + 7],
-            fill=color,
-            outline="white",
-            width=2,
-        )
-
+        draw.ellipse([x - 7, y - 7, x + 7, y + 7], fill=color, outline="white", width=2)
         draw.text((x + 10, y - 10), tag, fill="white")
 
     return img.convert("RGB")
@@ -206,13 +195,12 @@ if st.session_state.page == "home":
     st.title("🏭 Rig Simulation – Home")
 
     cols = st.columns(len(SYSTEMS))
-
     for i, (key, system) in enumerate(SYSTEMS.items()):
         with cols[i]:
             if st.button(system["name"], use_container_width=True):
                 st.session_state.page = key
 
-    st.info("Select a system. CSV simulation drives valve behaviour.")
+    st.info("Upload CSV → select system → press Play")
     st.stop()
 
 # =========================================================
@@ -227,6 +215,7 @@ pipes = load_json(config["pipes"])
 for tag in valves:
     st.session_state.valve_states.setdefault(tag, False)
 
+# Auto-play
 if st.session_state.csv is not None:
     if st.session_state.playing:
         advance_step()
@@ -236,11 +225,53 @@ if st.session_state.csv is not None:
     row = st.session_state.csv.iloc[st.session_state.step]
     apply_csv_to_valves(valves, row)
 
+# =========================================================
+# STEP HEADER (THIS IS WHAT YOU WERE MISSING)
+# =========================================================
+st.markdown("## ⏱ Test Step Status")
+
+total_steps = len(st.session_state.csv)
+current_step = st.session_state.step + 1
+duration = float(row["TST_StepDuration"])
+elapsed = time.time() - st.session_state.last_tick
+
+c1, c2, c3, c4 = st.columns(4)
+
+c1.metric("Step", f"{current_step} / {total_steps}")
+c2.metric("Duration (s)", duration)
+c3.metric("Elapsed (s)", f"{elapsed:.1f}")
+c4.metric("State", "▶ PLAYING" if st.session_state.playing else "⏸ PAUSED")
+
+# =========================================================
+# P&ID VIEW
+# =========================================================
 st.title(config["name"])
 
 image = render_pid(config["image"], valves, pipes)
 st.image(image, use_container_width=True, caption="Green = Flow | Red = Closed Valve")
 
-with st.expander("🔍 CSV Step Data"):
-    if st.session_state.csv is not None:
-        st.write(row)
+# =========================================================
+# STEP DATA TABLE
+# =========================================================
+st.markdown("---")
+st.subheader("📋 Current Step Data")
+
+display_cols = [
+    "TST_CellPresDemand",
+    "TST_InterPresDemand",
+    "TST_InterBPDemand_DE",
+    "TST_InterBPDemand_NDE",
+    "TST_GasInjectionDemand",
+    "TST_SpeedDem",
+    "TST_TempDemand",
+    "TST_TestMode",
+    "TST_MeasurementReq",
+]
+
+st.dataframe(
+    row[display_cols].to_frame("Value"),
+    use_container_width=True,
+)
+
+with st.expander("🔍 Full CSV Row"):
+    st.write(row)
