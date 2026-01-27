@@ -25,10 +25,13 @@ if "valve_states" not in st.session_state:
 
 if "csv" not in st.session_state:
     st.session_state.csv = None
+
 if "step" not in st.session_state:
     st.session_state.step = 0
+
 if "playing" not in st.session_state:
     st.session_state.playing = False
+
 if "last_tick" not in st.session_state:
     st.session_state.last_tick = time.time()
 
@@ -40,43 +43,43 @@ SYSTEMS = {
         "name": "🔧 Mixing System",
         "valves": "data/valves_mixing.json",
         "pipes": "data/pipes_mixing.json",
-        "image": "assets/p&id_mixing.png"
+        "image": "assets/p&id_mixing.png",
     },
     "supply": {
         "name": "⚡ Pressure Supply",
         "valves": "data/valves_pressure_in.json",
         "pipes": "data/pipes_pressure_in.json",
-        "image": "assets/p&id_pressure_in.png"
+        "image": "assets/p&id_pressure_in.png",
     },
     "dgs": {
         "name": "🎮 DGS System",
         "valves": "data/valves_dgs.json",
         "pipes": "data/pipes_dgs.json",
-        "image": "assets/p&id_dgs.png"
+        "image": "assets/p&id_dgs.png",
     },
     "return": {
         "name": "🔄 Pressure Return",
         "valves": "data/valves_pressure_return.json",
         "pipes": "data/pipes_pressure_return.json",
-        "image": "assets/p&id_pressure_return.png"
+        "image": "assets/p&id_pressure_return.png",
     },
     "seal": {
         "name": "🔒 Separation Seal",
         "valves": "data/valves_separation_seal.json",
         "pipes": "data/pipes_separation_seal.json",
-        "image": "assets/p&id_separation_seal.png"
-    }
+        "image": "assets/p&id_separation_seal.png",
+    },
 }
 
 # =========================================================
-# VALVE ALIGNMENT (NUMERIC TAGS – HMI SAFE)
+# VALVE ALIGNMENT (NUMERIC TAGS)
 # =========================================================
 VALVE_ROLE_MAP = {
     "CELL_PRESSURE": "101",
     "INTER_PRESSURE": "201",
     "BP_DE": "301",
     "BP_NDE": "302",
-    "GAS_INJECTION": "401"
+    "GAS_INJECTION": "401",
 }
 
 CSV_ROLE_MAP = {
@@ -84,11 +87,11 @@ CSV_ROLE_MAP = {
     "TST_InterPresDemand": "INTER_PRESSURE",
     "TST_InterBPDemand_DE": "BP_DE",
     "TST_InterBPDemand_NDE": "BP_NDE",
-    "TST_GasInjectionDemand": "GAS_INJECTION"
+    "TST_GasInjectionDemand": "GAS_INJECTION",
 }
 
 # =========================================================
-# UTIL FUNCTIONS
+# UTILITY FUNCTIONS
 # =========================================================
 def load_json(path):
     if os.path.exists(path):
@@ -109,6 +112,7 @@ def advance_step():
     if elapsed >= max(duration, 0.1):
         st.session_state.step += 1
         st.session_state.last_tick = time.time()
+
         if st.session_state.step >= len(df):
             st.session_state.step = len(df) - 1
             st.session_state.playing = False
@@ -117,16 +121,19 @@ def advance_step():
 def apply_csv_to_valves(valves, row):
     for csv_col, role in CSV_ROLE_MAP.items():
         valve_tag = VALVE_ROLE_MAP.get(role)
+
         if valve_tag in valves:
             st.session_state.valve_states[valve_tag] = float(row[csv_col]) > 0
 
 
 def pipe_active(pipe_idx, valves):
     pipe_no = pipe_idx + 1
-    for v, data in valves.items():
-        if st.session_state.valve_states.get(v, False):
+
+    for tag, data in valves.items():
+        if st.session_state.valve_states.get(tag, False):
             if pipe_no in data.get("connected_pipes", []):
                 return True
+
     return False
 
 
@@ -138,20 +145,30 @@ def render_pid(image_path, valves, pipes):
 
     draw = ImageDraw.Draw(img)
 
-    # Pipes
-    for i, p in enumerate(pipes):
+    for i, pipe in enumerate(pipes):
         active = pipe_active(i, valves)
         color = (0, 255, 0) if active else (70, 70, 100)
         width = 6 if active else 4
-        draw.line([(p["x1"], p["y1"]), (p["x2"], p["y2"])], fill=color, width=width)
 
-    # Valves
-    for tag, v in valves.items():
-        x, y = v["x"], v["y"]
+        draw.line(
+            [(pipe["x1"], pipe["y1"]), (pipe["x2"], pipe["y2"])],
+            fill=color,
+            width=width,
+        )
+
+    for tag, valve in valves.items():
+        x, y = valve["x"], valve["y"]
         open_ = st.session_state.valve_states.get(tag, False)
         color = (0, 255, 0) if open_ else (255, 0, 0)
-        draw.ellipse([x-7, y-7, x+7, y+7], fill=color, outline="white", width=2)
-        draw.text((x+10, y-10), tag, fill="white")
+
+        draw.ellipse(
+            [x - 7, y - 7, x + 7, y + 7],
+            fill=color,
+            outline="white",
+            width=2,
+        )
+
+        draw.text((x + 10, y - 10), tag, fill="white")
 
     return img.convert("RGB")
 
@@ -166,9 +183,10 @@ with st.sidebar:
 
     st.markdown("---")
 
-    csv = st.file_uploader("Upload CSV Test Sequence", type=["csv"])
-    if csv:
-        st.session_state.csv = load_csv(csv)
+    csv_file = st.file_uploader("Upload CSV Test Sequence", type=["csv"])
+
+    if csv_file:
+        st.session_state.csv = load_csv(csv_file)
         st.session_state.step = 0
         st.session_state.playing = False
         st.session_state.last_tick = time.time()
@@ -176,6 +194,7 @@ with st.sidebar:
 
     if st.session_state.csv is not None:
         st.markdown("---")
+
         if st.button("▶ Play" if not st.session_state.playing else "⏸ Pause"):
             st.session_state.playing = not st.session_state.playing
             st.session_state.last_tick = time.time()
@@ -187,9 +206,10 @@ if st.session_state.page == "home":
     st.title("🏭 Rig Simulation – Home")
 
     cols = st.columns(len(SYSTEMS))
-    for i, (key, sys) in enumerate(SYSTEMS.items()):
+
+    for i, (key, system) in enumerate(SYSTEMS.items()):
         with cols[i]:
-            if st.button(sys["name"], use_container_width=True):
+            if st.button(system["name"], use_container_width=True):
                 st.session_state.page = key
 
     st.info("Select a system. CSV simulation drives valve behaviour.")
@@ -198,14 +218,14 @@ if st.session_state.page == "home":
 # =========================================================
 # SYSTEM PAGE
 # =========================================================
-system = st.session_state.page
-cfg = SYSTEMS[system]
+system_key = st.session_state.page
+config = SYSTEMS[system_key]
 
-valves = load_json(cfg["valves"])
-pipes = load_json(cfg["pipes"])
+valves = load_json(config["valves"])
+pipes = load_json(config["pipes"])
 
-for v in valves:
-    st.session_state.valve_states.setdefault(v, False)
+for tag in valves:
+    st.session_state.valve_states.setdefault(tag, False)
 
 if st.session_state.csv is not None:
     if st.session_state.playing:
@@ -216,9 +236,10 @@ if st.session_state.csv is not None:
     row = st.session_state.csv.iloc[st.session_state.step]
     apply_csv_to_valves(valves, row)
 
-st.title(cfg["name"])
-img = render_pid(cfg["image"], valves, pipes)
-st.image(img, use_container_width=True, caption="Green = Flow | Red = Closed Valve")
+st.title(config["name"])
+
+image = render_pid(config["image"], valves, pipes)
+st.image(image, use_container_width=True, caption="Green = Flow | Red = Closed Valve")
 
 with st.expander("🔍 CSV Step Data"):
     if st.session_state.csv is not None:
