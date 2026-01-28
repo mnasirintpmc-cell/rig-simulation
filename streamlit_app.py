@@ -1,13 +1,12 @@
 import streamlit as st
 import pandas as pd
 import json
-import os
 from PIL import Image, ImageDraw
 
 st.set_page_config("Rig Simulation", "🏭", layout="wide")
 
 # =========================================================
-# PANELS (ALL PRESENT)
+# PANELS
 # =========================================================
 PANELS = {
     "mixing": {
@@ -43,7 +42,7 @@ PANELS = {
 }
 
 # =========================================================
-# SESSION STATE (GLOBAL, NOT PER PANEL)
+# SESSION STATE
 # =========================================================
 if "csv" not in st.session_state:
     st.session_state.csv = None
@@ -53,8 +52,14 @@ if "panel" not in st.session_state:
     st.session_state.panel = "mixing"
 if "valve_states" not in st.session_state:
     st.session_state.valve_states = {}
-if "flow_state" not in st.session_state:
-    st.session_state.flow_state = {"cell": False, "nde": False, "de": False}
+if "pressure" not in st.session_state:
+    st.session_state.pressure = {
+        "cell": False,
+        "nde": False,
+        "de": False,
+        "nde_bias": False,
+        "de_bias": False,
+    }
 
 # =========================================================
 # HELPERS
@@ -67,42 +72,59 @@ def csv_val(row, key):
     return float(row[key]) if key in row else 0.0
 
 # =========================================================
-# STEP → VALVES (SUPPLY + MIXING)
+# APPLY STEP (REAL PHYSICS)
 # =========================================================
 def apply_step(row):
-    st.session_state.valve_states.clear()
-    fs = {"cell": False, "nde": False, "de": False}
+    vs = st.session_state.valve_states
+    p = {"cell": False, "nde": False, "de": False, "nde_bias": False, "de_bias": False}
 
-    # ---- MIXING ----
-    if csv_val(row, "TST_GasInjectionDemand") > 0:
-        st.session_state.valve_states["MIXING_ON"] = True
+    vs.clear()
 
-    # ---- PRESSURE SUPPLY ----
+    # -------------------------------
+    # PRESSURE SUPPLY (CELL)
+    # -------------------------------
     if csv_val(row, "TST_CellPresDemand") > 0:
-        fs["cell"] = True
+        vs["V-108"] = True   # shop air
+        vs["V-107"] = True   # medium / high
+        p["cell"] = True
+
+    # -------------------------------
+    # INTERSPACE SUPPLY
+    # -------------------------------
     if csv_val(row, "TST_InterBPDemand_NDE") > 0:
-        fs["nde"] = True
+        vs["V-110"] = True
+        p["nde_bias"] = True
+
     if csv_val(row, "TST_InterBPDemand_DE") > 0:
-        fs["de"] = True
+        vs["V-109"] = True
+        p["de_bias"] = True
 
-    st.session_state.flow_state = fs
+    # -------------------------------
+    # BACK PRESSURE ENABLE
+    # -------------------------------
+    if csv_val(row, "TST_InterPresDemand") > 0:
+        vs["V-111"] = True
 
-    # ---- DGS ----
-    if fs["nde"]:
-        st.session_state.valve_states["V-202"] = True
-    if fs["de"]:
-        st.session_state.valve_states["V-210"] = True
+    # -------------------------------
+    # DRY GAS SEAL DYNAMICS
+    # -------------------------------
+    if p["cell"]:
+        p["nde"] = True
+        p["de"] = True
+
+    st.session_state.pressure = p
 
 # =========================================================
-# PIPE ACTIVE
+# PIPE ACTIVE LOGIC (PRESSURE-BASED)
 # =========================================================
-def pipe_active(panel, pipe_idx, valves):
-    pipe_no = pipe_idx + 1
-    for tag, data in valves.items():
-        if st.session_state.valve_states.get(tag, False):
-            key = next((k for k in data if k.startswith("pipes")), None)
-            if key and pipe_no in data[key]:
-                return True
+def pipe_active(panel):
+    p = st.session_state.pressure
+    if panel in ["dgs", "return"]:
+        return p["cell"]
+    if panel == "supply":
+        return p["cell"] or p["nde_bias"] or p["de_bias"]
+    if panel == "mixing":
+        return True
     return False
 
 # =========================================================
@@ -116,27 +138,28 @@ def render(panel):
     valves = load_json(cfg["valves"])
     pipes = load_json(cfg["pipes"])
 
-    for i, p in enumerate(pipes):
-        active = pipe_active(panel, i, valves)
+    # Pipes
+    for p in pipes:
         draw.line(
             [(p["x1"], p["y1"]), (p["x2"], p["y2"])],
-            fill=(0,255,0) if active else (80,80,100),
-            width=6 if active else 4
+            fill=(0, 255, 0) if pipe_active(panel) else (90, 90, 110),
+            width=6 if pipe_active(panel) else 4,
         )
 
+    # Valves
     for tag, v in valves.items():
         open_ = st.session_state.valve_states.get(tag, False)
         draw.ellipse(
-            [v["x"]-7, v["y"]-7, v["x"]+7, v["y"]+7],
-            fill=(0,255,0) if open_ else (255,0,0),
-            outline="white"
+            [v["x"] - 7, v["y"] - 7, v["x"] + 7, v["y"] + 7],
+            fill=(0, 255, 0) if open_ else (255, 0, 0),
+            outline="white",
         )
-        draw.text((v["x"]+10, v["y"]-10), tag, fill="white")
+        draw.text((v["x"] + 10, v["y"] - 10), tag, fill="white")
 
     return img
 
 # =========================================================
-# SIDEBAR (GLOBAL CSV + STEP)
+# SIDEBAR
 # =========================================================
 with st.sidebar:
     st.title("🏭 Rig Control")
@@ -144,7 +167,7 @@ with st.sidebar:
     st.session_state.panel = st.selectbox(
         "Select Panel",
         list(PANELS.keys()),
-        format_func=lambda k: PANELS[k]["name"]
+        format_func=lambda k: PANELS[k]["name"],
     )
 
     csv_file = st.file_uploader("Upload Test CSV", type=["csv"])
@@ -159,6 +182,11 @@ with st.sidebar:
             if st.session_state.step >= len(st.session_state.csv):
                 st.session_state.step = len(st.session_state.csv) - 1
             st.rerun()
+
+    st.markdown("---")
+    st.subheader("Pressure State")
+    for k, v in st.session_state.pressure.items():
+        st.write(f"{k}: {'✅' if v else '❌'}")
 
 # =========================================================
 # MAIN
