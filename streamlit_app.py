@@ -43,7 +43,7 @@ PANELS = {
 }
 
 # =========================================================
-# SESSION STATE (STABLE)
+# SESSION STATE
 # =========================================================
 if "csv" not in st.session_state:
     st.session_state.csv = None
@@ -71,12 +71,15 @@ def csv_val(row, key):
     return float(row[key]) if key in row else 0.0
 
 # =========================================================
-# APPLY STEP (UNCHANGED LOGIC)
+# APPLY STEP (FINAL – GAS INJECTION OVERRIDE)
 # =========================================================
 def apply_step(row):
     vs = st.session_state.valve_states
     vs.clear()
 
+    # -------------------------------
+    # CELL PRESSURE SELECTION
+    # -------------------------------
     cell_p = csv_val(row, "TST_CellPresDemand")
 
     v108 = v107 = v106 = False
@@ -94,6 +97,9 @@ def apply_step(row):
 
     cell_active = v108 or v107 or v106
 
+    # -------------------------------
+    # INTERSPACE SOURCE
+    # -------------------------------
     inter_source = (
         csv_val(row, "TST_InterBPDemand_NDE") > 0
         or csv_val(row, "TST_InterBPDemand_DE") > 0
@@ -103,6 +109,9 @@ def apply_step(row):
         vs["V-110"] = True
         vs["V-109"] = True
 
+    # -------------------------------
+    # INTERSPACE ENABLES
+    # -------------------------------
     nde_enable = csv_val(row, "TST_InterBPDemand_NDE") > 0
     de_enable  = csv_val(row, "TST_InterBPDemand_DE") > 0
 
@@ -112,21 +121,37 @@ def apply_step(row):
     nde_active = inter_source and nde_enable
     de_active  = inter_source and de_enable
 
-    if nde_active:
-        vs["V-115"] = True
-    if de_active:
-        vs["V-116"] = True
-
+    # -------------------------------
+    # GAS INJECTION (OVERRIDE MODE)
+    # -------------------------------
     gas_injection = csv_val(row, "TST_GasInjectionDemand") > 0
+
     if gas_injection:
+        # Inject gas
         vs["V-206"] = True
         vs["V-207"] = True
 
-    if "V-115" in vs:
-        vs["V-204"] = True
-    if "V-116" in vs:
-        vs["V-208"] = True
+        # Force interspaces active in pod
+        nde_active = True
+        de_active = True
 
+        # Back-pressure return MUST be closed
+        # (Do NOT open V-204 / V-208)
+    else:
+        # -------------------------------
+        # NORMAL BACK PRESSURE ROUTING
+        # -------------------------------
+        if nde_active:
+            vs["V-115"] = True
+            vs["V-204"] = True
+
+        if de_active:
+            vs["V-116"] = True
+            vs["V-208"] = True
+
+    # -------------------------------
+    # DGS VALVES
+    # -------------------------------
     if cell_active:
         vs["cell"] = True
     if nde_active:
@@ -184,7 +209,7 @@ def render(panel):
     return img
 
 # =========================================================
-# SIDEBAR (THIS IS THE FIX)
+# SIDEBAR
 # =========================================================
 with st.sidebar:
     st.title("🏭 Rig Control")
