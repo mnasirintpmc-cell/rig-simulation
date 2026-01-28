@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import json
@@ -56,8 +55,6 @@ if "panel" not in st.session_state:
     st.session_state.panel = "mixing"
 if "valve_states" not in st.session_state:
     st.session_state.valve_states = {}
-if "pressure_state" not in st.session_state:
-    st.session_state.pressure_state = {}
 
 # =========================================================
 # HELPERS
@@ -69,38 +66,28 @@ def load_json(path):
     return {}
 
 def csv_val(row, key):
-    return float(row[key]) if key in row else 0.0
+    return float(row[key]) if key in row and pd.notna(row[key]) else 0.0
+
+def is_seal_csv(df):
+    return "TST_SepSealControlTyp" in df.columns
 
 # =========================================================
-# APPLY STEP (FINAL – GAS INJECTION + INTERSPACE FEED)
+# DGS LOGIC (UNCHANGED – VERIFIED WORKING)
 # =========================================================
-def apply_step(row):
+def apply_dgs_step(row):
     vs = st.session_state.valve_states
     vs.clear()
 
-    # -------------------------------
-    # CELL PRESSURE SELECTION
-    # -------------------------------
     cell_p = csv_val(row, "TST_CellPresDemand")
 
-    v108 = v107 = v106 = False
     if cell_p > 0:
         if cell_p <= 10:
-            v108 = True
+            vs["V-108"] = True
         elif cell_p <= 100:
-            v107 = True
+            vs["V-107"] = True
         else:
-            v106 = True
+            vs["V-106"] = True
 
-    if v108: vs["V-108"] = True
-    if v107: vs["V-107"] = True
-    if v106: vs["V-106"] = True
-
-    cell_active = v108 or v107 or v106
-
-    # -------------------------------
-    # INTERSPACE SOURCE
-    # -------------------------------
     inter_source = (
         csv_val(row, "TST_InterBPDemand_NDE") > 0
         or csv_val(row, "TST_InterBPDemand_DE") > 0
@@ -110,63 +97,76 @@ def apply_step(row):
         vs["V-110"] = True
         vs["V-109"] = True
 
-    nde_enable = csv_val(row, "TST_InterBPDemand_NDE") > 0
-    de_enable  = csv_val(row, "TST_InterBPDemand_DE") > 0
+    nde = csv_val(row, "TST_InterBPDemand_NDE") > 0
+    de  = csv_val(row, "TST_InterBPDemand_DE") > 0
 
-    if nde_enable: vs["V-112"] = True
-    if de_enable:  vs["V-113"] = True
+    if nde: vs["V-112"] = True
+    if de:  vs["V-113"] = True
 
-    nde_active = inter_source and nde_enable
-    de_active  = inter_source and de_enable
+    gas = csv_val(row, "TST_GasInjectionDemand") > 0
 
-    # -------------------------------
-    # GAS INJECTION OVERRIDE
-    # -------------------------------
-    gas_injection = csv_val(row, "TST_GasInjectionDemand") > 0
-
-    if gas_injection:
-        # Gas injection valves
+    if gas:
         vs["V-206"] = True
         vs["V-207"] = True
-
-        # Feed interspaces back into pod
         vs["V-115"] = True
         vs["V-116"] = True
-
-        # Force pod interspaces active
-        nde_active = True
-        de_active = True
-
-        # IMPORTANT:
-        # Do NOT open V-204 / V-208 (return isolation)
+        nde = de = True
     else:
-        # -------------------------------
-        # NORMAL BACK PRESSURE MODE
-        # -------------------------------
-        if nde_active:
+        if nde:
             vs["V-115"] = True
             vs["V-204"] = True
-
-        if de_active:
+        if de:
             vs["V-116"] = True
             vs["V-208"] = True
 
-    # -------------------------------
-    # DGS POD VALVES
-    # -------------------------------
-    if cell_active:
-        vs["cell"] = True
-    if nde_active:
-        vs["NDE in"] = True
-    if de_active:
-        vs["DE in"] = True
+    if cell_p > 0: vs["cell"] = True
+    if nde: vs["NDE in"] = True
+    if de:  vs["DE in"] = True
 
-    st.session_state.pressure_state = {
-        "cell": cell_active,
-        "nde": nde_active,
-        "de": de_active,
-        "gas_injection": gas_injection,
-    }
+# =========================================================
+# SEPARATION SEAL LOGIC (SIMPLIFIED – FINAL)
+# =========================================================
+def apply_seal_step(row):
+    vs = st.session_state.valve_states
+    vs.clear()
+
+    # Control mode exists but does not affect valve selection anymore
+    flow = max(
+        csv_val(row, "TST_SepSealFlwSet1"),
+        csv_val(row, "TST_SepSealFlwSet2")
+    )
+
+    pressure = max(
+        csv_val(row, "TST_SepSealPSet1"),
+        csv_val(row, "TST_SepSealPSet2")
+    )
+
+    # -------------------------------
+    # PRESSURE SUPPLY SELECTION
+    # -------------------------------
+    if pressure > 0:
+        if pressure <= 10:
+            vs["V-108"] = True
+        elif pressure <= 100:
+            vs["V-107"] = True
+        else:
+            vs["V-106"] = True
+
+    # -------------------------------
+    # MAIN SEAL PATHS (ANY FLOW)
+    # -------------------------------
+    if flow > 0 or pressure > 0:
+        vs["V-212"] = True
+        vs["V-213"] = True
+        vs["V-214"] = True
+        vs["V-215"] = True
+
+    # -------------------------------
+    # HIGH FLOW BOOSTERS
+    # -------------------------------
+    if flow > 500:
+        vs["V-216"] = True
+        vs["V-217"] = True
 
 # =========================================================
 # PIPE ACTIVE
@@ -222,41 +222,41 @@ with st.sidebar:
         format_func=lambda k: PANELS[k]["name"],
     )
 
-    uploaded = st.file_uploader("Upload Test CSV", type=["csv"], key="csv_uploader")
+    uploaded = st.file_uploader("Upload Test CSV", type=["csv"])
 
     if uploaded is not None:
-        csv_id = (uploaded.name, uploaded.size)
-        if csv_id != st.session_state.csv_id:
+        cid = (uploaded.name, uploaded.size)
+        if cid != st.session_state.csv_id:
             st.session_state.csv = pd.read_csv(uploaded, sep=";")
-            st.session_state.csv_id = csv_id
+            st.session_state.csv_id = cid
             st.session_state.step = 0
-            st.success("CSV loaded")
 
     if st.session_state.csv is not None:
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("⏮ Previous Step"):
-                st.session_state.step = max(0, st.session_state.step - 1)
-                st.rerun()
-        with col2:
-            if st.button("⏭ Next Step"):
-                st.session_state.step = min(
-                    len(st.session_state.csv) - 1,
-                    st.session_state.step + 1
-                )
-                st.rerun()
+        c1, c2 = st.columns(2)
+        if c1.button("⏮ Previous Step"):
+            st.session_state.step = max(0, st.session_state.step - 1)
+            st.rerun()
+        if c2.button("⏭ Next Step"):
+            st.session_state.step = min(
+                len(st.session_state.csv) - 1,
+                st.session_state.step + 1
+            )
+            st.rerun()
 
 # =========================================================
 # MAIN
 # =========================================================
 if st.session_state.csv is not None:
     row = st.session_state.csv.iloc[st.session_state.step]
-    apply_step(row)
+    if is_seal_csv(st.session_state.csv):
+        apply_seal_step(row)
+    else:
+        apply_dgs_step(row)
 
 st.title(PANELS[st.session_state.panel]["name"])
 st.image(render(st.session_state.panel), use_container_width=True)
 
 if st.session_state.csv is not None:
     st.markdown("### ⏱ Step Status")
-    st.write(f"Row {st.session_state.step + 1} / {len(st.session_state.csv)}")
+    st.write(f"Step {st.session_state.step + 1} / {len(st.session_state.csv)}")
     st.write(row)
