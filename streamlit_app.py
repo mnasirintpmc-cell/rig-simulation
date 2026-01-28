@@ -105,13 +105,16 @@ def advance_step(ctrl):
         return
 
     if now - ctrl["step_start"] >= max(duration, 0.1):
-        ctrl["step"] += 1
-        ctrl["step_start"] = now
+        force_next_step(ctrl)
 
-        if ctrl["step"] >= len(df):
-            ctrl["step"] = len(df) - 1
-            ctrl["playing"] = False
-            ctrl["step_start"] = None
+def force_next_step(ctrl):
+    ctrl["step"] += 1
+    ctrl["step_start"] = None
+
+    if ctrl["step"] >= len(ctrl["csv"]):
+        ctrl["step"] = len(ctrl["csv"]) - 1
+        ctrl["playing"] = False
+        ctrl["step_start"] = None
 
 # =========================================================
 # CSV → VALVE LOGIC (SAFE)
@@ -124,6 +127,9 @@ def apply_csv_to_valves(panel, valves, row, ctrl):
         if csv_value(row, "TST_GasInjectionDemand") > 0:
             for tag in valves:
                 ctrl["valve_states"][tag] = True
+        else:
+            for tag in valves:
+                ctrl["valve_states"][tag] = False
 
     elif panel == "supply":
         if (
@@ -132,11 +138,17 @@ def apply_csv_to_valves(panel, valves, row, ctrl):
         ):
             for tag in valves:
                 ctrl["valve_states"][tag] = True
+        else:
+            for tag in valves:
+                ctrl["valve_states"][tag] = False
 
     elif panel == "seal":
         if csv_value(row, "TST_TestMode") > 0:
             for tag in valves:
                 ctrl["valve_states"][tag] = True
+        else:
+            for tag in valves:
+                ctrl["valve_states"][tag] = False
 
 # =========================================================
 # TEST POD DERIVED STATE
@@ -218,12 +230,20 @@ with st.sidebar:
         ctrl["step_start"] = None
         st.success("CSV loaded")
 
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
+
     if col1.button("▶ Play"):
         ctrl["playing"] = True
         ctrl["step_start"] = None
+
     if col2.button("⏸ Pause"):
         ctrl["playing"] = False
+
+    if col3.button("⏭ Next Step"):
+        if ctrl["csv"] is not None:
+            force_next_step(ctrl)
+            update_test_pod()
+            st.experimental_rerun()
 
     st.markdown("---")
     st.subheader("TEST POD")
@@ -248,7 +268,7 @@ if ctrl["csv"] is not None:
         advance_step(ctrl)
         update_test_pod()
         time.sleep(0.05)
-        st.rerun()
+        st.experimental_rerun()
 
 st.title(cfg["name"])
 st.image(render_panel(cfg["image"], panel, valves, pipes), use_container_width=True)
