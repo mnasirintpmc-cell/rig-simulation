@@ -6,10 +6,17 @@ import time
 from PIL import Image, ImageDraw
 
 # =========================================================
-# CONFIG
+# PAGE CONFIG
 # =========================================================
-st.set_page_config("Rig Simulation", "🏭", layout="wide")
+st.set_page_config(
+    page_title="Rig Simulation",
+    page_icon="🏭",
+    layout="wide"
+)
 
+# =========================================================
+# PANELS CONFIG
+# =========================================================
 PANELS = {
     "mixing": {
         "name": "Gas Mixing Panel",
@@ -44,7 +51,7 @@ PANELS = {
 }
 
 # =========================================================
-# SESSION STATE INITIALISATION
+# SESSION STATE
 # =========================================================
 if "current_panel" not in st.session_state:
     st.session_state.current_panel = "mixing"
@@ -70,7 +77,7 @@ for key in PANELS:
         }
 
 # =========================================================
-# LOADERS
+# HELPERS
 # =========================================================
 def load_json(path):
     if os.path.exists(path):
@@ -81,13 +88,16 @@ def load_json(path):
 def load_csv(upload):
     return pd.read_csv(upload, sep=";")
 
+def csv_value(row, col):
+    return float(row[col]) if col in row.index else 0.0
+
 # =========================================================
 # STEP SEQUENCER
 # =========================================================
 def advance_step(ctrl):
     df = ctrl["csv"]
     step = ctrl["step"]
-    duration = float(df.iloc[step]["TST_StepDuration"])
+    duration = float(csv_value(df.iloc[step], "TST_StepDuration"))
     now = time.time()
 
     if ctrl["step_start"] is None:
@@ -104,26 +114,29 @@ def advance_step(ctrl):
             ctrl["step_start"] = None
 
 # =========================================================
-# CSV → VALVE LOGIC (BASIC, SAFE DEFAULTS)
+# CSV → VALVE LOGIC (SAFE)
 # =========================================================
 def apply_csv_to_valves(panel, valves, row, ctrl):
     for tag in valves:
         ctrl["valve_states"].setdefault(tag, False)
 
     if panel == "mixing":
-        if row["TST_GasInjectionDemand"] > 0:
-            for v in valves:
-                ctrl["valve_states"][v] = True
+        if csv_value(row, "TST_GasInjectionDemand") > 0:
+            for tag in valves:
+                ctrl["valve_states"][tag] = True
 
     elif panel == "supply":
-        if row["TST_CellPresDemand"] > 0 or row["TST_InterPresDemand"] > 0:
-            for v in valves:
-                ctrl["valve_states"][v] = True
+        if (
+            csv_value(row, "TST_CellPresDemand") > 0
+            or csv_value(row, "TST_InterPresDemand") > 0
+        ):
+            for tag in valves:
+                ctrl["valve_states"][tag] = True
 
     elif panel == "seal":
-        if row["TST_TestMode"] > 0:
-            for v in valves:
-                ctrl["valve_states"][v] = True
+        if csv_value(row, "TST_TestMode") > 0:
+            for tag in valves:
+                ctrl["valve_states"][tag] = True
 
 # =========================================================
 # TEST POD DERIVED STATE
@@ -145,8 +158,8 @@ def pipe_active(panel, pipe_idx, valves):
 
     for tag, data in valves.items():
         if st.session_state.controllers[panel]["valve_states"].get(tag, False):
-            key = next(k for k in data.keys() if k.startswith("pipes"))
-            if pipe_no in data.get(key, []):
+            pipe_key = next((k for k in data if k.startswith("pipes")), None)
+            if pipe_key and pipe_no in data[pipe_key]:
                 if panel == "return":
                     return st.session_state.test_pod["pressurised"]
                 return True
@@ -155,7 +168,7 @@ def pipe_active(panel, pipe_idx, valves):
 # =========================================================
 # RENDER
 # =========================================================
-def render(image_path, panel, valves, pipes):
+def render_panel(image_path, panel, valves, pipes):
     img = Image.open(image_path).convert("RGBA")
     draw = ImageDraw.Draw(img)
 
@@ -163,18 +176,18 @@ def render(image_path, panel, valves, pipes):
         active = pipe_active(panel, i, valves)
         draw.line(
             [(p["x1"], p["y1"]), (p["x2"], p["y2"])],
-            fill=(0,255,0) if active else (80,80,100),
-            width=6 if active else 4
+            fill=(0, 255, 0) if active else (80, 80, 100),
+            width=6 if active else 4,
         )
 
     for tag, v in valves.items():
         open_ = st.session_state.controllers[panel]["valve_states"].get(tag, False)
         draw.ellipse(
-            [v["x"]-7, v["y"]-7, v["x"]+7, v["y"]+7],
-            fill=(0,255,0) if open_ else (255,0,0),
-            outline="white"
+            [v["x"] - 7, v["y"] - 7, v["x"] + 7, v["y"] + 7],
+            fill=(0, 255, 0) if open_ else (255, 0, 0),
+            outline="white",
         )
-        draw.text((v["x"]+10, v["y"]-10), tag, fill="white")
+        draw.text((v["x"] + 10, v["y"] - 10), tag, fill="white")
 
     return img
 
@@ -187,17 +200,23 @@ with st.sidebar:
     st.session_state.current_panel = st.selectbox(
         "Select Panel",
         list(PANELS.keys()),
-        format_func=lambda k: PANELS[k]["name"]
+        format_func=lambda k: PANELS[k]["name"],
     )
 
     ctrl = st.session_state.controllers[st.session_state.current_panel]
 
-    csv_file = st.file_uploader("Upload CSV", key=st.session_state.current_panel)
+    csv_file = st.file_uploader(
+        "Upload CSV",
+        key=f"csv_{st.session_state.current_panel}",
+        type=["csv"],
+    )
+
     if csv_file:
         ctrl["csv"] = load_csv(csv_file)
         ctrl["step"] = 0
         ctrl["playing"] = False
         ctrl["step_start"] = None
+        st.success("CSV loaded")
 
     col1, col2 = st.columns(2)
     if col1.button("▶ Play"):
@@ -212,7 +231,7 @@ with st.sidebar:
         st.write(f"{k}: {'✅' if v else '❌'}")
 
 # =========================================================
-# MAIN VIEW
+# MAIN
 # =========================================================
 panel = st.session_state.current_panel
 cfg = PANELS[panel]
@@ -232,9 +251,9 @@ if ctrl["csv"] is not None:
         st.rerun()
 
 st.title(cfg["name"])
-st.image(render(cfg["image"], panel, valves, pipes), use_container_width=True)
+st.image(render_panel(cfg["image"], panel, valves, pipes), use_container_width=True)
 
 if ctrl["csv"] is not None:
     st.markdown("### ⏱ Step Status")
-    st.write(f"Step {ctrl['step']+1} / {len(ctrl['csv'])}")
+    st.write(f"Step {ctrl['step'] + 1} / {len(ctrl['csv'])}")
     st.write(row)
