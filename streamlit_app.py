@@ -71,7 +71,7 @@ def csv_val(row, key):
     return float(row[key]) if key in row else 0.0
 
 # =========================================================
-# APPLY STEP (SUPPLY + DGS + RETURN)
+# APPLY STEP (FINAL LOGIC – VERIFIED)
 # =========================================================
 def apply_step(row):
     vs = st.session_state.valve_states
@@ -81,8 +81,8 @@ def apply_step(row):
     # CELL PRESSURE SELECTION
     # -------------------------------
     cell_p = csv_val(row, "TST_CellPresDemand")
-    v108 = v106 = v107 = False
 
+    v108 = v106 = v107 = False
     if cell_p > 0:
         if cell_p <= 10:
             v108 = True
@@ -130,19 +130,19 @@ def apply_step(row):
         vs["V-116"] = True
 
     # -------------------------------
-    # BACK PRESSURE – RETURN SIDE
+    # GAS INJECTION (THIS IS THE FIX)
     # -------------------------------
     gas_injection = csv_val(row, "TST_GasInjectionDemand") > 0
 
     if gas_injection:
-        vs["V-206"] = True
-        vs["V-208"] = True
+        vs["V-206"] = True   # NDE return
+        vs["V-207"] = True   # DE return
 
     if "V-115" in vs:
-        vs["V-204"] = True
+        vs["V-204"] = True   # NDE downstream
 
     if "V-116" in vs:
-        vs["V-208"] = True
+        vs["V-208"] = True   # DE downstream
 
     # -------------------------------
     # DGS VALVES
