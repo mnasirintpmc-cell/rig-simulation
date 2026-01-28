@@ -99,4 +99,154 @@ def apply_step(row):
 
     if v108: vs["V-108"] = True
     if v106: vs["V-106"] = True
-    if v107:
+    if v107: vs["V-107"] = True
+
+    cell_active = v108 or v106 or v107
+
+    # -------------------------------
+    # INTERSPACE SOURCE
+    # -------------------------------
+    inter_source = (
+        csv_val(row, "TST_InterBPDemand_NDE") > 0
+        or csv_val(row, "TST_InterBPDemand_DE") > 0
+    )
+
+    if inter_source:
+        vs["V-110"] = True
+        vs["V-109"] = True
+
+    # -------------------------------
+    # INTERSPACE ENABLES (CSV DRIVEN)
+    # -------------------------------
+    nde_enable = csv_val(row, "TST_InterBPDemand_NDE") > 0
+    de_enable  = csv_val(row, "TST_InterBPDemand_DE") > 0
+
+    if nde_enable:
+        vs["V-112"] = True
+    if de_enable:
+        vs["V-113"] = True
+
+    nde_active = inter_source and nde_enable
+    de_active  = inter_source and de_enable
+
+    # -------------------------------
+    # BACK PRESSURE INJECTION
+    # -------------------------------
+    bp_nde_cmd = csv_val(row, "TST_InterPresDemand") > 0 and nde_active
+    bp_de_cmd  = csv_val(row, "TST_InterPresDemand") > 0 and de_active
+
+    if bp_nde_cmd:
+        vs["V-115"] = True   # BP source NDE
+        vs["V-206"] = True   # BP return NDE
+
+    if bp_de_cmd:
+        vs["V-116"] = True   # BP source DE
+        vs["V-207"] = True   # BP return DE
+
+    # -------------------------------
+    # DGS VALVES
+    # -------------------------------
+    if cell_active:
+        vs["cell"] = True
+
+    if nde_active:
+        vs["NDE in"] = True
+
+    if de_active:
+        vs["DE in"] = True
+
+    st.session_state.pressure_state = {
+        "cell": cell_active,
+        "nde": nde_active,
+        "de": de_active,
+        "bp_nde": bp_nde_cmd,
+        "bp_de": bp_de_cmd,
+    }
+
+# =========================================================
+# PIPE ACTIVE
+# =========================================================
+def pipe_active(pipe_idx, valves):
+    pipe_no = pipe_idx + 1
+    for tag, data in valves.items():
+        if st.session_state.valve_states.get(tag, False):
+            key = next((k for k in data if k.startswith("pipes")), None)
+            if key and pipe_no in data[key]:
+                return True
+    return False
+
+# =========================================================
+# RENDER
+# =========================================================
+def render(panel):
+    cfg = PANELS[panel]
+    img = Image.open(cfg["image"]).convert("RGBA")
+    draw = ImageDraw.Draw(img)
+
+    valves = load_json(cfg["valves"])
+    pipes = load_json(cfg["pipes"])
+
+    for i, p in enumerate(pipes):
+        active = pipe_active(i, valves)
+        draw.line(
+            [(p["x1"], p["y1"]), (p["x2"], p["y2"])],
+            fill=(0, 255, 0) if active else (80, 80, 100),
+            width=6 if active else 4,
+        )
+
+    for tag, v in valves.items():
+        open_ = st.session_state.valve_states.get(tag, False)
+        draw.ellipse(
+            [v["x"] - 7, v["y"] - 7, v["x"] + 7, v["y"] + 7],
+            fill=(0, 255, 0) if open_ else (255, 0, 0),
+            outline="white",
+        )
+        draw.text((v["x"] + 10, v["y"] - 10), tag, fill="white")
+
+    return img
+
+# =========================================================
+# SIDEBAR
+# =========================================================
+with st.sidebar:
+    st.title("🏭 Rig Control")
+
+    st.session_state.panel = st.selectbox(
+        "Select Panel",
+        list(PANELS.keys()),
+        format_func=lambda k: PANELS[k]["name"],
+    )
+
+    csv_file = st.file_uploader("Upload Test CSV", type=["csv"])
+    if csv_file and not st.session_state.csv_loaded:
+        st.session_state.csv = pd.read_csv(csv_file, sep=";")
+        st.session_state.step = 0
+        st.session_state.csv_loaded = True
+        st.success("CSV loaded")
+
+    if st.session_state.csv is not None:
+        if st.button("⏭ Next Step"):
+            st.session_state.step += 1
+            if st.session_state.step >= len(st.session_state.csv):
+                st.session_state.step = len(st.session_state.csv) - 1
+            st.rerun()
+
+    st.markdown("---")
+    st.subheader("Pressure State")
+    for k, v in st.session_state.pressure_state.items():
+        st.write(f"{k}: {'ON' if v else 'OFF'}")
+
+# =========================================================
+# MAIN
+# =========================================================
+if st.session_state.csv is not None:
+    row = st.session_state.csv.iloc[st.session_state.step]
+    apply_step(row)
+
+st.title(PANELS[st.session_state.panel]["name"])
+st.image(render(st.session_state.panel), use_container_width=True)
+
+if st.session_state.csv is not None:
+    st.markdown("### ⏱ Step Status")
+    st.write(f"Row {st.session_state.step + 1} / {len(st.session_state.csv)}")
+    st.write(row)
