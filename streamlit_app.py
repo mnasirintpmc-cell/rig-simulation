@@ -4,10 +4,13 @@ import json
 import os
 from PIL import Image, ImageDraw
 
+# =========================================================
+# PAGE CONFIG
+# =========================================================
 st.set_page_config("Rig Simulation", "🏭", layout="wide")
 
 # =========================================================
-# PANELS
+# PANELS CONFIG
 # =========================================================
 PANELS = {
     "mixing": {
@@ -55,6 +58,8 @@ if "panel" not in st.session_state:
     st.session_state.panel = "mixing"
 if "valve_states" not in st.session_state:
     st.session_state.valve_states = {}
+if "pressure_state" not in st.session_state:
+    st.session_state.pressure_state = {"cell": False, "nde": False, "de": False}
 
 # =========================================================
 # HELPERS
@@ -69,31 +74,63 @@ def csv_val(row, key):
     return float(row[key]) if key in row else 0.0
 
 # =========================================================
-# APPLY STEP (VALVES ONLY)
+# APPLY STEP (YOUR FINAL LOGIC)
 # =========================================================
 def apply_step(row):
     vs = st.session_state.valve_states
     vs.clear()
 
-    # ---- CELL PRESSURE ----
-    if csv_val(row, "TST_CellPresDemand") > 0:
+    # ---- RAW SUPPLY VALVES ----
+    v108 = csv_val(row, "TST_CellPresDemand") > 0
+    v106 = csv_val(row, "TST_CellPresDemand") > 0
+    v107 = csv_val(row, "TST_CellPresDemand") > 0
+
+    v110 = (
+        csv_val(row, "TST_InterBPDemand_NDE") > 0
+        or csv_val(row, "TST_InterBPDemand_DE") > 0
+    )
+    v109 = v110
+
+    v112 = csv_val(row, "TST_InterPresDemand") > 0
+    v113 = csv_val(row, "TST_InterPresDemand") > 0
+
+    # ---- SET SUPPLY VALVES ----
+    if v108:
         vs["V-108"] = True
+    if v106:
+        vs["V-106"] = True
+    if v107:
         vs["V-107"] = True
 
-    # ---- NDE INTERSPACE ----
-    if csv_val(row, "TST_InterBPDemand_NDE") > 0:
+    if v110:
         vs["V-110"] = True
-
-    # ---- DE INTERSPACE ----
-    if csv_val(row, "TST_InterBPDemand_DE") > 0:
+    if v109:
         vs["V-109"] = True
 
-    # ---- BACK PRESSURE ----
-    if csv_val(row, "TST_InterPresDemand") > 0:
-        vs["V-111"] = True
+    if v112:
+        vs["V-112"] = True
+    if v113:
+        vs["V-113"] = True
+
+    # ---- PRESSURE STATE (AUTHORITATIVE) ----
+    ps = {
+        "cell": v108 or v106 or v107,
+        "nde": (v110 or v109) and v112,
+        "de":  (v110 or v109) and v113,
+    }
+
+    # ---- DGS VALVES (REAL TAGS) ----
+    if ps["cell"]:
+        vs["cell"] = True
+    if ps["nde"]:
+        vs["NDE in"] = True
+    if ps["de"]:
+        vs["DE in"] = True
+
+    st.session_state.pressure_state = ps
 
 # =========================================================
-# PIPE ACTIVE (VALVE-BASED, NOT PANEL-BASED)
+# PIPE ACTIVE (VALVE → PIPE MAP)
 # =========================================================
 def pipe_active(pipe_idx, valves):
     pipe_no = pipe_idx + 1
@@ -115,6 +152,7 @@ def render(panel):
     valves = load_json(cfg["valves"])
     pipes = load_json(cfg["pipes"])
 
+    # Pipes
     for i, p in enumerate(pipes):
         active = pipe_active(i, valves)
         draw.line(
@@ -123,6 +161,7 @@ def render(panel):
             width=6 if active else 4,
         )
 
+    # Valves
     for tag, v in valves.items():
         open_ = st.session_state.valve_states.get(tag, False)
         draw.ellipse(
@@ -159,6 +198,11 @@ with st.sidebar:
             if st.session_state.step >= len(st.session_state.csv):
                 st.session_state.step = len(st.session_state.csv) - 1
             st.rerun()
+
+    st.markdown("---")
+    st.subheader("Pressure State")
+    for k, v in st.session_state.pressure_state.items():
+        st.write(f"{k}: {'✅' if v else '❌'}")
 
 # =========================================================
 # MAIN
