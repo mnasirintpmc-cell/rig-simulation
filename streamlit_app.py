@@ -71,7 +71,7 @@ def csv_val(row, key):
     return float(row[key]) if key in row else 0.0
 
 # =========================================================
-# APPLY STEP (FINAL – GAS INJECTION OVERRIDE)
+# APPLY STEP (FINAL – GAS INJECTION + INTERSPACE FEED)
 # =========================================================
 def apply_step(row):
     vs = st.session_state.valve_states
@@ -109,9 +109,6 @@ def apply_step(row):
         vs["V-110"] = True
         vs["V-109"] = True
 
-    # -------------------------------
-    # INTERSPACE ENABLES
-    # -------------------------------
     nde_enable = csv_val(row, "TST_InterBPDemand_NDE") > 0
     de_enable  = csv_val(row, "TST_InterBPDemand_DE") > 0
 
@@ -122,24 +119,28 @@ def apply_step(row):
     de_active  = inter_source and de_enable
 
     # -------------------------------
-    # GAS INJECTION (OVERRIDE MODE)
+    # GAS INJECTION OVERRIDE
     # -------------------------------
     gas_injection = csv_val(row, "TST_GasInjectionDemand") > 0
 
     if gas_injection:
-        # Inject gas
+        # Gas injection valves
         vs["V-206"] = True
         vs["V-207"] = True
 
-        # Force interspaces active in pod
+        # Feed interspaces back into pod
+        vs["V-115"] = True
+        vs["V-116"] = True
+
+        # Force pod interspaces active
         nde_active = True
         de_active = True
 
-        # Back-pressure return MUST be closed
-        # (Do NOT open V-204 / V-208)
+        # IMPORTANT:
+        # Do NOT open V-204 / V-208 (return isolation)
     else:
         # -------------------------------
-        # NORMAL BACK PRESSURE ROUTING
+        # NORMAL BACK PRESSURE MODE
         # -------------------------------
         if nde_active:
             vs["V-115"] = True
@@ -150,7 +151,7 @@ def apply_step(row):
             vs["V-208"] = True
 
     # -------------------------------
-    # DGS VALVES
+    # DGS POD VALVES
     # -------------------------------
     if cell_active:
         vs["cell"] = True
