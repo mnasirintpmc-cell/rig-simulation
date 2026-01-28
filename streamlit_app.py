@@ -1,3 +1,4 @@
+
 import streamlit as st
 import pandas as pd
 import json
@@ -11,31 +12,31 @@ st.set_page_config("Rig Simulation", "🏭", layout="wide")
 # =========================================================
 PANELS = {
     "mixing": {
-        "name": "Gas Mixing",
+        "name": "Gas Mixing Panel",
         "valves": "data/valves_mixing.json",
         "pipes": "data/pipes_mixing.json",
         "image": "assets/p&id_mixing.png",
     },
     "supply": {
-        "name": "Pressure Supply",
+        "name": "Pressure Supply Panel",
         "valves": "data/valves_pressure_in.json",
         "pipes": "data/pipes_pressure_in.json",
         "image": "assets/p&id_pressure_in.png",
     },
     "dgs": {
-        "name": "DGS Pod",
+        "name": "DGS Panel",
         "valves": "data/valves_dgs.json",
         "pipes": "data/pipes_dgs.json",
         "image": "assets/p&id_dgs.png",
     },
     "return": {
-        "name": "Pressure Return",
+        "name": "Pressure Return Panel",
         "valves": "data/valves_pressure_return.json",
         "pipes": "data/pipes_pressure_return.json",
         "image": "assets/p&id_pressure_return.png",
     },
     "seal": {
-        "name": "Separation Seal",
+        "name": "Separation Seal Panel",
         "valves": "data/valves_separation_seal.json",
         "pipes": "data/pipes_separation_seal.json",
         "image": "assets/p&id_separation_seal.png",
@@ -45,91 +46,138 @@ PANELS = {
 # =========================================================
 # SESSION STATE
 # =========================================================
-for k, v in {
-    "csv": None,
-    "csv_id": None,
-    "step": 0,
-    "panel": "seal",
-    "valve_states": {},
-}.items():
-    if k not in st.session_state:
-        st.session_state[k] = v
+if "csv" not in st.session_state:
+    st.session_state.csv = None
+if "csv_id" not in st.session_state:
+    st.session_state.csv_id = None
+if "step" not in st.session_state:
+    st.session_state.step = 0
+if "panel" not in st.session_state:
+    st.session_state.panel = "mixing"
+if "valve_states" not in st.session_state:
+    st.session_state.valve_states = {}
+if "pressure_state" not in st.session_state:
+    st.session_state.pressure_state = {}
 
 # =========================================================
 # HELPERS
 # =========================================================
 def load_json(path):
-    return json.load(open(path)) if os.path.exists(path) else {}
+    if os.path.exists(path):
+        with open(path) as f:
+            return json.load(f)
+    return {}
 
 def csv_val(row, key):
-    return float(row[key]) if key in row and pd.notna(row[key]) else 0.0
-
-def detect_test_type(df):
-    if "TST_SepSealControlTyp" in df.columns:
-        return "SEAL"
-    return "UNKNOWN"
+    return float(row[key]) if key in row else 0.0
 
 # =========================================================
-# SEPARATION SEAL LOGIC (WITH FLOW THRESHOLD)
+# APPLY STEP (FINAL – GAS INJECTION + INTERSPACE FEED)
 # =========================================================
-def apply_seal(row):
+def apply_step(row):
     vs = st.session_state.valve_states
     vs.clear()
 
-    mode = int(csv_val(row, "TST_SepSealControlTyp"))
+    # -------------------------------
+    # CELL PRESSURE SELECTION
+    # -------------------------------
+    cell_p = csv_val(row, "TST_CellPresDemand")
 
-    # -------------------------------
-    # PRESSURE SOURCE (shared)
-    # -------------------------------
-    p = max(csv_val(row, "TST_SepSealPSet1"), csv_val(row, "TST_SepSealPSet2"))
-    if p > 0:
-        if p <= 10:
-            vs["V-108"] = True
-        elif p <= 100:
-            vs["V-107"] = True
+    v108 = v107 = v106 = False
+    if cell_p > 0:
+        if cell_p <= 10:
+            v108 = True
+        elif cell_p <= 100:
+            v107 = True
         else:
-            vs["V-106"] = True
+            v106 = True
+
+    if v108: vs["V-108"] = True
+    if v107: vs["V-107"] = True
+    if v106: vs["V-106"] = True
+
+    cell_active = v108 or v107 or v106
 
     # -------------------------------
-    # FLOW MODE
+    # INTERSPACE SOURCE
     # -------------------------------
-    if mode == 0:
-        f1 = csv_val(row, "TST_SepSealFlwSet1")
-        f2 = csv_val(row, "TST_SepSealFlwSet2")
+    inter_source = (
+        csv_val(row, "TST_InterBPDemand_NDE") > 0
+        or csv_val(row, "TST_InterBPDemand_DE") > 0
+    )
 
-        if f1 > 0:
-            vs["V-212"] = True
-            vs["V-214"] = True
-            if f1 > 500:
-                vs["V-216"] = True   # NDE booster
+    if inter_source:
+        vs["V-110"] = True
+        vs["V-109"] = True
 
-        if f2 > 0:
-            vs["V-213"] = True
-            vs["V-215"] = True
-            if f2 > 500:
-                vs["V-217"] = True   # DE booster
+    nde_enable = csv_val(row, "TST_InterBPDemand_NDE") > 0
+    de_enable  = csv_val(row, "TST_InterBPDemand_DE") > 0
+
+    if nde_enable: vs["V-112"] = True
+    if de_enable:  vs["V-113"] = True
+
+    nde_active = inter_source and nde_enable
+    de_active  = inter_source and de_enable
 
     # -------------------------------
-    # PRESSURE MODE
+    # GAS INJECTION OVERRIDE
     # -------------------------------
-    if mode == 1:
-        if csv_val(row, "TST_SepSealPSet1") > 0:
-            vs["V-212"] = True
-            vs["V-214"] = True
-        if csv_val(row, "TST_SepSealPSet2") > 0:
-            vs["V-213"] = True
-            vs["V-215"] = True
+    gas_injection = csv_val(row, "TST_GasInjectionDemand") > 0
+
+    if gas_injection:
+        # Gas injection valves
+        vs["V-206"] = True
+        vs["V-207"] = True
+
+        # Feed interspaces back into pod
+        vs["V-115"] = True
+        vs["V-116"] = True
+
+        # Force pod interspaces active
+        nde_active = True
+        de_active = True
+
+        # IMPORTANT:
+        # Do NOT open V-204 / V-208 (return isolation)
+    else:
+        # -------------------------------
+        # NORMAL BACK PRESSURE MODE
+        # -------------------------------
+        if nde_active:
+            vs["V-115"] = True
+            vs["V-204"] = True
+
+        if de_active:
+            vs["V-116"] = True
+            vs["V-208"] = True
+
+    # -------------------------------
+    # DGS POD VALVES
+    # -------------------------------
+    if cell_active:
+        vs["cell"] = True
+    if nde_active:
+        vs["NDE in"] = True
+    if de_active:
+        vs["DE in"] = True
+
+    st.session_state.pressure_state = {
+        "cell": cell_active,
+        "nde": nde_active,
+        "de": de_active,
+        "gas_injection": gas_injection,
+    }
 
 # =========================================================
 # PIPE ACTIVE
 # =========================================================
-def pipe_active(idx, valves):
-    pno = idx + 1
-    for t, d in valves.items():
-        if st.session_state.valve_states.get(t):
-            for k in d:
-                if k.startswith("pipes") and pno in d[k]:
-                    return True
+def pipe_active(pipe_idx, valves):
+    pipe_no = pipe_idx + 1
+    for tag, data in valves.items():
+        if st.session_state.valve_states.get(tag, False):
+            key = next((k for k in data if k.startswith("pipes")), None)
+            if key and pipe_no in data[key]:
+                return True
     return False
 
 # =========================================================
@@ -148,17 +196,17 @@ def render(panel):
         draw.line(
             [(p["x1"], p["y1"]), (p["x2"], p["y2"])],
             fill=(0, 255, 0) if active else (90, 90, 110),
-            width=6 if active else 4
+            width=6 if active else 4,
         )
 
-    for t, v in valves.items():
-        open_ = st.session_state.valve_states.get(t)
+    for tag, v in valves.items():
+        open_ = st.session_state.valve_states.get(tag, False)
         draw.ellipse(
             [v["x"] - 7, v["y"] - 7, v["x"] + 7, v["y"] + 7],
             fill=(0, 255, 0) if open_ else (255, 0, 0),
-            outline="white"
+            outline="white",
         )
-        draw.text((v["x"] + 10, v["y"] - 10), t, fill="white")
+        draw.text((v["x"] + 10, v["y"] - 10), tag, fill="white")
 
     return img
 
@@ -166,56 +214,49 @@ def render(panel):
 # SIDEBAR
 # =========================================================
 with st.sidebar:
-    st.title("Rig Control")
+    st.title("🏭 Rig Control")
 
     st.session_state.panel = st.selectbox(
-        "Panel", list(PANELS), format_func=lambda k: PANELS[k]["name"]
+        "Select Panel",
+        list(PANELS.keys()),
+        format_func=lambda k: PANELS[k]["name"],
     )
 
-    up = st.file_uploader("Upload Separation Seal CSV", type="csv")
-    if up:
-        cid = (up.name, up.size)
-        if cid != st.session_state.csv_id:
-            st.session_state.csv = pd.read_csv(up, sep=";")
-            st.session_state.csv_id = cid
+    uploaded = st.file_uploader("Upload Test CSV", type=["csv"], key="csv_uploader")
+
+    if uploaded is not None:
+        csv_id = (uploaded.name, uploaded.size)
+        if csv_id != st.session_state.csv_id:
+            st.session_state.csv = pd.read_csv(uploaded, sep=";")
+            st.session_state.csv_id = csv_id
             st.session_state.step = 0
+            st.success("CSV loaded")
 
     if st.session_state.csv is not None:
-        c1, c2 = st.columns(2)
-        if c1.button("◀ Previous"):
-            st.session_state.step = max(0, st.session_state.step - 1)
-            st.rerun()
-        if c2.button("Next ▶"):
-            st.session_state.step = min(
-                len(st.session_state.csv) - 1,
-                st.session_state.step + 1
-            )
-            st.rerun()
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("⏮ Previous Step"):
+                st.session_state.step = max(0, st.session_state.step - 1)
+                st.rerun()
+        with col2:
+            if st.button("⏭ Next Step"):
+                st.session_state.step = min(
+                    len(st.session_state.csv) - 1,
+                    st.session_state.step + 1
+                )
+                st.rerun()
 
 # =========================================================
 # MAIN
 # =========================================================
 if st.session_state.csv is not None:
     row = st.session_state.csv.iloc[st.session_state.step]
-    apply_seal(row)
+    apply_step(row)
 
 st.title(PANELS[st.session_state.panel]["name"])
 st.image(render(st.session_state.panel), use_container_width=True)
 
-# =========================================================
-# STEP TABLE (NEW)
-# =========================================================
 if st.session_state.csv is not None:
-    st.markdown("### 🧾 Test Steps (Current Highlighted)")
-    df = st.session_state.csv.copy()
-    df.insert(0, "STEP", range(1, len(df) + 1))
-
-    st.dataframe(
-        df,
-        height=300,
-        use_container_width=True
-    )
-
-    st.markdown(
-        f"**▶ Current Step:** {st.session_state.step + 1} / {len(df)}"
-    )
+    st.markdown("### ⏱ Step Status")
+    st.write(f"Row {st.session_state.step + 1} / {len(st.session_state.csv)}")
+    st.write(row)
