@@ -7,11 +7,7 @@ from PIL import Image, ImageDraw
 # =========================================================
 # PAGE CONFIG
 # =========================================================
-st.set_page_config(
-    page_title="Rig Simulation",
-    page_icon="🏭",
-    layout="wide"
-)
+st.set_page_config(page_title="Rig Simulation", page_icon="🏭", layout="wide")
 
 # =========================================================
 # PANELS CONFIG
@@ -70,7 +66,6 @@ for panel in PANELS:
         st.session_state.controllers[panel] = {
             "csv": None,
             "step": 0,
-            "playing": False,
             "valve_states": {},
         }
 
@@ -90,7 +85,7 @@ def csv_value(row, col):
     return float(row[col]) if col in row.index else 0.0
 
 # =========================================================
-# CSV → VALVE LOGIC (SAFE DEFAULTS)
+# CSV → VALVE LOGIC
 # =========================================================
 def apply_csv_to_valves(panel, valves, row, ctrl):
     for tag in valves:
@@ -115,7 +110,7 @@ def apply_csv_to_valves(panel, valves, row, ctrl):
             ctrl["valve_states"][tag] = state
 
 # =========================================================
-# TEST POD DERIVED STATE
+# TEST POD STATE
 # =========================================================
 def update_test_pod():
     mixing = st.session_state.controllers["mixing"]
@@ -127,7 +122,7 @@ def update_test_pod():
     st.session_state.test_pod["seal_active"] = any(seal["valve_states"].values())
 
 # =========================================================
-# PIPE ACTIVE LOGIC
+# PIPE ACTIVE
 # =========================================================
 def pipe_active(panel, pipe_idx, valves):
     pipe_no = pipe_idx + 1
@@ -190,23 +185,13 @@ with st.sidebar:
     if csv_file:
         ctrl["csv"] = load_csv(csv_file)
         ctrl["step"] = 0
-        ctrl["playing"] = False
         st.success("CSV loaded")
 
-    col1, col2, col3 = st.columns(3)
-
-    if col1.button("▶ Play"):
-        ctrl["playing"] = True
-
-    if col2.button("⏸ Pause"):
-        ctrl["playing"] = False
-
-    if col3.button("⏭ Next Step"):
+    if st.button("⏭ Next Step"):
         if ctrl["csv"] is not None:
             ctrl["step"] += 1
             if ctrl["step"] >= len(ctrl["csv"]):
                 ctrl["step"] = len(ctrl["csv"]) - 1
-            update_test_pod()
             st.rerun()
 
     st.markdown("---")
@@ -228,13 +213,6 @@ if ctrl["csv"] is not None:
     row = ctrl["csv"].iloc[ctrl["step"]]
     apply_csv_to_valves(panel, valves, row, ctrl)
     update_test_pod()
-
-    if ctrl["playing"]:
-        ctrl["step"] += 1
-        if ctrl["step"] >= len(ctrl["csv"]):
-            ctrl["step"] = len(ctrl["csv"]) - 1
-            ctrl["playing"] = False
-        st.rerun()
 
 st.title(cfg["name"])
 st.image(render_panel(cfg["image"], panel, valves, pipes), use_container_width=True)
