@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import json
 import os
-import time
 from PIL import Image, ImageDraw
 
 # =========================================================
@@ -66,13 +65,12 @@ if "test_pod" not in st.session_state:
         "seal_active": False,
     }
 
-for key in PANELS:
-    if key not in st.session_state.controllers:
-        st.session_state.controllers[key] = {
+for panel in PANELS:
+    if panel not in st.session_state.controllers:
+        st.session_state.controllers[panel] = {
             "csv": None,
             "step": 0,
             "playing": False,
-            "step_start": None,
             "valve_states": {},
         }
 
@@ -92,63 +90,29 @@ def csv_value(row, col):
     return float(row[col]) if col in row.index else 0.0
 
 # =========================================================
-# STEP SEQUENCER
-# =========================================================
-def advance_step(ctrl):
-    df = ctrl["csv"]
-    step = ctrl["step"]
-    duration = float(csv_value(df.iloc[step], "TST_StepDuration"))
-    now = time.time()
-
-    if ctrl["step_start"] is None:
-        ctrl["step_start"] = now
-        return
-
-    if now - ctrl["step_start"] >= max(duration, 0.1):
-        force_next_step(ctrl)
-
-def force_next_step(ctrl):
-    ctrl["step"] += 1
-    ctrl["step_start"] = None
-
-    if ctrl["step"] >= len(ctrl["csv"]):
-        ctrl["step"] = len(ctrl["csv"]) - 1
-        ctrl["playing"] = False
-        ctrl["step_start"] = None
-
-# =========================================================
-# CSV → VALVE LOGIC (SAFE)
+# CSV → VALVE LOGIC (SAFE DEFAULTS)
 # =========================================================
 def apply_csv_to_valves(panel, valves, row, ctrl):
     for tag in valves:
         ctrl["valve_states"].setdefault(tag, False)
 
     if panel == "mixing":
-        if csv_value(row, "TST_GasInjectionDemand") > 0:
-            for tag in valves:
-                ctrl["valve_states"][tag] = True
-        else:
-            for tag in valves:
-                ctrl["valve_states"][tag] = False
+        state = csv_value(row, "TST_GasInjectionDemand") > 0
+        for tag in valves:
+            ctrl["valve_states"][tag] = state
 
     elif panel == "supply":
-        if (
+        state = (
             csv_value(row, "TST_CellPresDemand") > 0
             or csv_value(row, "TST_InterPresDemand") > 0
-        ):
-            for tag in valves:
-                ctrl["valve_states"][tag] = True
-        else:
-            for tag in valves:
-                ctrl["valve_states"][tag] = False
+        )
+        for tag in valves:
+            ctrl["valve_states"][tag] = state
 
     elif panel == "seal":
-        if csv_value(row, "TST_TestMode") > 0:
-            for tag in valves:
-                ctrl["valve_states"][tag] = True
-        else:
-            for tag in valves:
-                ctrl["valve_states"][tag] = False
+        state = csv_value(row, "TST_TestMode") > 0
+        for tag in valves:
+            ctrl["valve_states"][tag] = state
 
 # =========================================================
 # TEST POD DERIVED STATE
@@ -227,23 +191,23 @@ with st.sidebar:
         ctrl["csv"] = load_csv(csv_file)
         ctrl["step"] = 0
         ctrl["playing"] = False
-        ctrl["step_start"] = None
         st.success("CSV loaded")
 
     col1, col2, col3 = st.columns(3)
 
     if col1.button("▶ Play"):
         ctrl["playing"] = True
-        ctrl["step_start"] = None
 
     if col2.button("⏸ Pause"):
         ctrl["playing"] = False
 
     if col3.button("⏭ Next Step"):
         if ctrl["csv"] is not None:
-            force_next_step(ctrl)
+            ctrl["step"] += 1
+            if ctrl["step"] >= len(ctrl["csv"]):
+                ctrl["step"] = len(ctrl["csv"]) - 1
             update_test_pod()
-            st.experimental_rerun()
+            st.rerun()
 
     st.markdown("---")
     st.subheader("TEST POD")
@@ -263,17 +227,19 @@ pipes = load_json(cfg["pipes"])
 if ctrl["csv"] is not None:
     row = ctrl["csv"].iloc[ctrl["step"]]
     apply_csv_to_valves(panel, valves, row, ctrl)
+    update_test_pod()
 
     if ctrl["playing"]:
-        advance_step(ctrl)
-        update_test_pod()
-        time.sleep(0.05)
-        st.experimental_rerun()
+        ctrl["step"] += 1
+        if ctrl["step"] >= len(ctrl["csv"]):
+            ctrl["step"] = len(ctrl["csv"]) - 1
+            ctrl["playing"] = False
+        st.rerun()
 
 st.title(cfg["name"])
 st.image(render_panel(cfg["image"], panel, valves, pipes), use_container_width=True)
 
 if ctrl["csv"] is not None:
     st.markdown("### ⏱ Step Status")
-    st.write(f"Step {ctrl['step'] + 1} / {len(ctrl['csv'])}")
+    st.write(f"Row {ctrl['step'] + 1} / {len(ctrl['csv'])}")
     st.write(row)
