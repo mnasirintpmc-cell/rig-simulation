@@ -43,10 +43,12 @@ PANELS = {
 }
 
 # =========================================================
-# SESSION STATE (CLEAN)
+# SESSION STATE (STABLE)
 # =========================================================
 if "csv" not in st.session_state:
     st.session_state.csv = None
+if "csv_id" not in st.session_state:
+    st.session_state.csv_id = None
 if "step" not in st.session_state:
     st.session_state.step = 0
 if "panel" not in st.session_state:
@@ -182,7 +184,7 @@ def render(panel):
     return img
 
 # =========================================================
-# SIDEBAR
+# SIDEBAR (THIS IS THE FIX)
 # =========================================================
 with st.sidebar:
     st.title("🏭 Rig Control")
@@ -193,12 +195,15 @@ with st.sidebar:
         format_func=lambda k: PANELS[k]["name"],
     )
 
-    csv_file = st.file_uploader("Upload Test CSV", type=["csv"])
+    uploaded = st.file_uploader("Upload Test CSV", type=["csv"], key="csv_uploader")
 
-    if csv_file is not None:
-        st.session_state.csv = pd.read_csv(csv_file, sep=";")
-        st.session_state.step = 0
-        st.success("CSV loaded (replaced)")
+    if uploaded is not None:
+        csv_id = (uploaded.name, uploaded.size)
+        if csv_id != st.session_state.csv_id:
+            st.session_state.csv = pd.read_csv(uploaded, sep=";")
+            st.session_state.csv_id = csv_id
+            st.session_state.step = 0
+            st.success("CSV loaded")
 
     if st.session_state.csv is not None:
         col1, col2 = st.columns(2)
