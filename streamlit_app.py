@@ -6,147 +6,177 @@ import time
 from PIL import Image, ImageDraw
 
 # =========================================================
-# PAGE CONFIG
+# CONFIG
 # =========================================================
-st.set_page_config(
-    page_title="Rig Simulation Platform",
-    page_icon="🏭",
-    layout="wide"
-)
+st.set_page_config("Rig Simulation", "🏭", layout="wide")
 
-# =========================================================
-# SESSION STATE
-# =========================================================
-if "page" not in st.session_state:
-    st.session_state.page = "home"
-
-if "valve_states" not in st.session_state:
-    st.session_state.valve_states = {}
-
-if "csv" not in st.session_state:
-    st.session_state.csv = None
-
-if "step" not in st.session_state:
-    st.session_state.step = 0
-
-if "playing" not in st.session_state:
-    st.session_state.playing = False
-
-if "step_start_time" not in st.session_state:
-    st.session_state.step_start_time = None
-
-# =========================================================
-# SYSTEM DEFINITIONS (SUPPLY SHOWN – OTHERS KEPT)
-# =========================================================
-SYSTEMS = {
+PANELS = {
+    "mixing": {
+        "name": "Gas Mixing Panel",
+        "valves": "data/valves_mixing.json",
+        "pipes": "data/pipes_mixing.json",
+        "image": "assets/p&id_mixing.png",
+    },
     "supply": {
-        "name": "⚡ Pressure Supply",
+        "name": "Pressure Supply Panel",
         "valves": "data/valves_pressure_in.json",
         "pipes": "data/pipes_pressure_in.json",
         "image": "assets/p&id_pressure_in.png",
-    }
+    },
+    "dgs": {
+        "name": "DGS Panel",
+        "valves": "data/valves_dgs.json",
+        "pipes": "data/pipes_dgs.json",
+        "image": "assets/p&id_dgs.png",
+    },
+    "return": {
+        "name": "Pressure Return Panel",
+        "valves": "data/valves_pressure_return.json",
+        "pipes": "data/pipes_pressure_return.json",
+        "image": "assets/p&id_pressure_return.png",
+    },
+    "seal": {
+        "name": "Separation Seal Panel",
+        "valves": "data/valves_separation_seal.json",
+        "pipes": "data/pipes_separation_seal.json",
+        "image": "assets/p&id_separation_seal.png",
+    },
 }
+
+# =========================================================
+# SESSION STATE INITIALISATION
+# =========================================================
+if "current_panel" not in st.session_state:
+    st.session_state.current_panel = "mixing"
+
+if "controllers" not in st.session_state:
+    st.session_state.controllers = {}
+
+if "test_pod" not in st.session_state:
+    st.session_state.test_pod = {
+        "gas_present": False,
+        "pressurised": False,
+        "seal_active": False,
+    }
+
+for key in PANELS:
+    if key not in st.session_state.controllers:
+        st.session_state.controllers[key] = {
+            "csv": None,
+            "step": 0,
+            "playing": False,
+            "step_start": None,
+            "valve_states": {},
+        }
 
 # =========================================================
 # LOADERS
 # =========================================================
 def load_json(path):
     if os.path.exists(path):
-        with open(path, "r") as f:
+        with open(path) as f:
             return json.load(f)
     return {} if "valves" in path else []
-
 
 def load_csv(upload):
     return pd.read_csv(upload, sep=";")
 
-
-# =========================================================
-# CSV → VALVE LOGIC (ALIGNED TO YOUR VALVES)
-# =========================================================
-def apply_csv_to_valves(valves, row):
-    cell_pressure = float(row["TST_CellPresDemand"])
-    inter_pressure = float(row["TST_InterPresDemand"])
-
-    for tag in valves:
-        # Cell pressure inlet
-        if tag == "V-201":
-            st.session_state.valve_states[tag] = cell_pressure > 0
-
-        # Inter / supply manifold
-        elif tag.startswith("V-10"):
-            st.session_state.valve_states[tag] = inter_pressure > 0
-
-
 # =========================================================
 # STEP SEQUENCER
 # =========================================================
-def advance_step_if_needed():
-    df = st.session_state.csv
-    step = st.session_state.step
+def advance_step(ctrl):
+    df = ctrl["csv"]
+    step = ctrl["step"]
     duration = float(df.iloc[step]["TST_StepDuration"])
     now = time.time()
 
-    if st.session_state.step_start_time is None:
-        st.session_state.step_start_time = now
+    if ctrl["step_start"] is None:
+        ctrl["step_start"] = now
         return
 
-    if now - st.session_state.step_start_time >= max(duration, 0.1):
-        st.session_state.step += 1
-        st.session_state.step_start_time = now
+    if now - ctrl["step_start"] >= max(duration, 0.1):
+        ctrl["step"] += 1
+        ctrl["step_start"] = now
 
-        if st.session_state.step >= len(df):
-            st.session_state.step = len(df) - 1
-            st.session_state.playing = False
-            st.session_state.step_start_time = None
-
+        if ctrl["step"] >= len(df):
+            ctrl["step"] = len(df) - 1
+            ctrl["playing"] = False
+            ctrl["step_start"] = None
 
 # =========================================================
-# PIPE ACTIVE CHECK (FIXED FOR YOUR JSON)
+# CSV → VALVE LOGIC (BASIC, SAFE DEFAULTS)
 # =========================================================
-def pipe_active(pipe_idx, valves):
+def apply_csv_to_valves(panel, valves, row, ctrl):
+    for tag in valves:
+        ctrl["valve_states"].setdefault(tag, False)
+
+    if panel == "mixing":
+        if row["TST_GasInjectionDemand"] > 0:
+            for v in valves:
+                ctrl["valve_states"][v] = True
+
+    elif panel == "supply":
+        if row["TST_CellPresDemand"] > 0 or row["TST_InterPresDemand"] > 0:
+            for v in valves:
+                ctrl["valve_states"][v] = True
+
+    elif panel == "seal":
+        if row["TST_TestMode"] > 0:
+            for v in valves:
+                ctrl["valve_states"][v] = True
+
+# =========================================================
+# TEST POD DERIVED STATE
+# =========================================================
+def update_test_pod():
+    mixing = st.session_state.controllers["mixing"]
+    supply = st.session_state.controllers["supply"]
+    seal = st.session_state.controllers["seal"]
+
+    st.session_state.test_pod["gas_present"] = any(mixing["valve_states"].values())
+    st.session_state.test_pod["pressurised"] = any(supply["valve_states"].values())
+    st.session_state.test_pod["seal_active"] = any(seal["valve_states"].values())
+
+# =========================================================
+# PIPE ACTIVE LOGIC
+# =========================================================
+def pipe_active(panel, pipe_idx, valves):
     pipe_no = pipe_idx + 1
 
     for tag, data in valves.items():
-        if st.session_state.valve_states.get(tag, False):
-            connected = data.get("pipes_pressure_in.json", [])
-            if pipe_no in connected:
+        if st.session_state.controllers[panel]["valve_states"].get(tag, False):
+            key = next(k for k in data.keys() if k.startswith("pipes"))
+            if pipe_no in data.get(key, []):
+                if panel == "return":
+                    return st.session_state.test_pod["pressurised"]
                 return True
     return False
 
-
 # =========================================================
-# P&ID RENDER
+# RENDER
 # =========================================================
-def render_pid(image_path, valves, pipes):
-    if os.path.exists(image_path):
-        img = Image.open(image_path).convert("RGBA")
-    else:
-        img = Image.new("RGBA", (900, 600), (40, 40, 60))
-
+def render(image_path, panel, valves, pipes):
+    img = Image.open(image_path).convert("RGBA")
     draw = ImageDraw.Draw(img)
 
-    # Pipes
-    for i, pipe in enumerate(pipes):
-        active = pipe_active(i, valves)
-        color = (0, 255, 0) if active else (70, 70, 100)
-        width = 6 if active else 4
+    for i, p in enumerate(pipes):
+        active = pipe_active(panel, i, valves)
         draw.line(
-            [(pipe["x1"], pipe["y1"]), (pipe["x2"], pipe["y2"])],
-            fill=color,
-            width=width,
+            [(p["x1"], p["y1"]), (p["x2"], p["y2"])],
+            fill=(0,255,0) if active else (80,80,100),
+            width=6 if active else 4
         )
 
-    # Valves
-    for tag, valve in valves.items():
-        x, y = valve["x"], valve["y"]
-        open_ = st.session_state.valve_states.get(tag, False)
-        color = (0, 255, 0) if open_ else (255, 0, 0)
-        draw.ellipse([x - 7, y - 7, x + 7, y + 7], fill=color, outline="white", width=2)
-        draw.text((x + 10, y - 10), tag, fill="white")
+    for tag, v in valves.items():
+        open_ = st.session_state.controllers[panel]["valve_states"].get(tag, False)
+        draw.ellipse(
+            [v["x"]-7, v["y"]-7, v["x"]+7, v["y"]+7],
+            fill=(0,255,0) if open_ else (255,0,0),
+            outline="white"
+        )
+        draw.text((v["x"]+10, v["y"]-10), tag, fill="white")
 
-    return img.convert("RGB")
-
+    return img
 
 # =========================================================
 # SIDEBAR
@@ -154,68 +184,57 @@ def render_pid(image_path, valves, pipes):
 with st.sidebar:
     st.title("🏭 Rig Control")
 
-    csv_file = st.file_uploader("Upload CSV", type=["csv"])
+    st.session_state.current_panel = st.selectbox(
+        "Select Panel",
+        list(PANELS.keys()),
+        format_func=lambda k: PANELS[k]["name"]
+    )
+
+    ctrl = st.session_state.controllers[st.session_state.current_panel]
+
+    csv_file = st.file_uploader("Upload CSV", key=st.session_state.current_panel)
     if csv_file:
-        st.session_state.csv = load_csv(csv_file)
-        st.session_state.step = 0
-        st.session_state.playing = False
-        st.session_state.step_start_time = None
-        st.success("CSV Loaded")
+        ctrl["csv"] = load_csv(csv_file)
+        ctrl["step"] = 0
+        ctrl["playing"] = False
+        ctrl["step_start"] = None
 
-    if st.session_state.csv is not None:
-        if st.button("▶ Play"):
-            st.session_state.playing = True
-            st.session_state.step_start_time = None
+    col1, col2 = st.columns(2)
+    if col1.button("▶ Play"):
+        ctrl["playing"] = True
+        ctrl["step_start"] = None
+    if col2.button("⏸ Pause"):
+        ctrl["playing"] = False
 
-        if st.button("⏸ Pause"):
-            st.session_state.playing = False
-
+    st.markdown("---")
+    st.subheader("TEST POD")
+    for k, v in st.session_state.test_pod.items():
+        st.write(f"{k}: {'✅' if v else '❌'}")
 
 # =========================================================
-# MAIN (SUPPLY SYSTEM)
+# MAIN VIEW
 # =========================================================
-cfg = SYSTEMS["supply"]
+panel = st.session_state.current_panel
+cfg = PANELS[panel]
+ctrl = st.session_state.controllers[panel]
 
 valves = load_json(cfg["valves"])
 pipes = load_json(cfg["pipes"])
 
-for v in valves:
-    st.session_state.valve_states.setdefault(v, False)
+if ctrl["csv"] is not None:
+    row = ctrl["csv"].iloc[ctrl["step"]]
+    apply_csv_to_valves(panel, valves, row, ctrl)
 
-if st.session_state.csv is not None:
-    row = st.session_state.csv.iloc[st.session_state.step]
-    apply_csv_to_valves(valves, row)
-
-    if st.session_state.playing:
-        advance_step_if_needed()
+    if ctrl["playing"]:
+        advance_step(ctrl)
+        update_test_pod()
         time.sleep(0.05)
         st.rerun()
 
-# =========================================================
-# STATUS
-# =========================================================
-st.markdown("## ⏱ Test Step Status")
-
-total = len(st.session_state.csv)
-current = st.session_state.step + 1
-duration = float(row["TST_StepDuration"])
-elapsed = (
-    0 if st.session_state.step_start_time is None
-    else time.time() - st.session_state.step_start_time
-)
-
-c1, c2, c3, c4 = st.columns(4)
-c1.metric("Step", f"{current}/{total}")
-c2.metric("Duration (s)", duration)
-c3.metric("Elapsed (s)", f"{elapsed:.1f}")
-c4.metric("State", "▶ PLAYING" if st.session_state.playing else "⏸ PAUSED")
-
-# =========================================================
-# P&ID VIEW
-# =========================================================
 st.title(cfg["name"])
-img = render_pid(cfg["image"], valves, pipes)
-st.image(img, use_container_width=True, caption="Green = Flow | Red = Closed Valve")
+st.image(render(cfg["image"], panel, valves, pipes), use_container_width=True)
 
-with st.expander("🔍 CSV Row"):
+if ctrl["csv"] is not None:
+    st.markdown("### ⏱ Step Status")
+    st.write(f"Step {ctrl['step']+1} / {len(ctrl['csv'])}")
     st.write(row)
