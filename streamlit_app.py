@@ -7,10 +7,10 @@ from PIL import Image, ImageDraw
 # =========================================================
 # PAGE CONFIG
 # =========================================================
-st.set_page_config(page_title="Rig Simulation", page_icon="🏭", layout="wide")
+st.set_page_config("Rig Simulation", "🏭", layout="wide")
 
 # =========================================================
-# PANELS CONFIG
+# PANELS
 # =========================================================
 PANELS = {
     "mixing": {
@@ -65,6 +65,7 @@ for panel in PANELS:
     if panel not in st.session_state.controllers:
         st.session_state.controllers[panel] = {
             "csv": None,
+            "csv_loaded": False,
             "step": 0,
             "valve_states": {},
         }
@@ -85,7 +86,7 @@ def csv_value(row, col):
     return float(row[col]) if col in row.index else 0.0
 
 # =========================================================
-# CSV → VALVE LOGIC
+# CSV → VALVES
 # =========================================================
 def apply_csv_to_valves(panel, valves, row, ctrl):
     for tag in valves:
@@ -93,24 +94,21 @@ def apply_csv_to_valves(panel, valves, row, ctrl):
 
     if panel == "mixing":
         state = csv_value(row, "TST_GasInjectionDemand") > 0
-        for tag in valves:
-            ctrl["valve_states"][tag] = state
-
     elif panel == "supply":
         state = (
             csv_value(row, "TST_CellPresDemand") > 0
             or csv_value(row, "TST_InterPresDemand") > 0
         )
-        for tag in valves:
-            ctrl["valve_states"][tag] = state
-
     elif panel == "seal":
         state = csv_value(row, "TST_TestMode") > 0
-        for tag in valves:
-            ctrl["valve_states"][tag] = state
+    else:
+        state = False
+
+    for tag in valves:
+        ctrl["valve_states"][tag] = state
 
 # =========================================================
-# TEST POD STATE
+# TEST POD
 # =========================================================
 def update_test_pod():
     mixing = st.session_state.controllers["mixing"]
@@ -126,9 +124,10 @@ def update_test_pod():
 # =========================================================
 def pipe_active(panel, pipe_idx, valves):
     pipe_no = pipe_idx + 1
+    ctrl = st.session_state.controllers[panel]
 
     for tag, data in valves.items():
-        if st.session_state.controllers[panel]["valve_states"].get(tag, False):
+        if ctrl["valve_states"].get(tag, False):
             pipe_key = next((k for k in data if k.startswith("pipes")), None)
             if pipe_key and pipe_no in data[pipe_key]:
                 if panel == "return":
@@ -147,7 +146,7 @@ def render_panel(image_path, panel, valves, pipes):
         active = pipe_active(panel, i, valves)
         draw.line(
             [(p["x1"], p["y1"]), (p["x2"], p["y2"])],
-            fill=(0, 255, 0) if active else (80, 80, 100),
+            fill=(0, 255, 0) if active else (90, 90, 110),
             width=6 if active else 4,
         )
 
@@ -182,9 +181,10 @@ with st.sidebar:
         type=["csv"],
     )
 
-    if csv_file:
+    if csv_file and not ctrl["csv_loaded"]:
         ctrl["csv"] = load_csv(csv_file)
         ctrl["step"] = 0
+        ctrl["csv_loaded"] = True
         st.success("CSV loaded")
 
     if st.button("⏭ Next Step"):
