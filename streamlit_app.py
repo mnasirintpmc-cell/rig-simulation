@@ -49,7 +49,7 @@ for k, v in {
     "csv": None,
     "csv_id": None,
     "step": 0,
-    "panel": "mixing",
+    "panel": "seal",
     "valve_states": {},
 }.items():
     if k not in st.session_state:
@@ -64,69 +64,13 @@ def load_json(path):
 def csv_val(row, key):
     return float(row[key]) if key in row and pd.notna(row[key]) else 0.0
 
-# =========================================================
-# TEST TYPE DETECTION
-# =========================================================
 def detect_test_type(df):
     if "TST_SepSealControlTyp" in df.columns:
         return "SEAL"
-    if "TST_CellPresDemand" in df.columns:
-        return "DGS"
     return "UNKNOWN"
 
 # =========================================================
-# DGS LOGIC (UNCHANGED, VALIDATED)
-# =========================================================
-def apply_dgs(row):
-    vs = st.session_state.valve_states
-    vs.clear()
-
-    cell_p = csv_val(row, "TST_CellPresDemand")
-
-    if cell_p > 0:
-        if cell_p <= 10:
-            vs["V-108"] = True
-        elif cell_p <= 100:
-            vs["V-107"] = True
-        else:
-            vs["V-106"] = True
-
-    inter_src = (
-        csv_val(row, "TST_InterBPDemand_NDE") > 0
-        or csv_val(row, "TST_InterBPDemand_DE") > 0
-    )
-    if inter_src:
-        vs["V-110"] = True
-        vs["V-109"] = True
-
-    nde = csv_val(row, "TST_InterBPDemand_NDE") > 0
-    de  = csv_val(row, "TST_InterBPDemand_DE") > 0
-
-    if nde: vs["V-112"] = True
-    if de:  vs["V-113"] = True
-
-    gas = csv_val(row, "TST_GasInjectionDemand") > 0
-
-    if gas:
-        vs["V-206"] = True
-        vs["V-207"] = True
-        vs["V-115"] = True
-        vs["V-116"] = True
-        nde = de = True
-    else:
-        if nde:
-            vs["V-115"] = True
-            vs["V-204"] = True
-        if de:
-            vs["V-116"] = True
-            vs["V-208"] = True
-
-    if cell_p > 0: vs["cell"] = True
-    if nde: vs["NDE in"] = True
-    if de:  vs["DE in"] = True
-
-# =========================================================
-# SEPARATION SEAL LOGIC (NEW)
+# SEPARATION SEAL LOGIC (WITH FLOW THRESHOLD)
 # =========================================================
 def apply_seal(row):
     vs = st.session_state.valve_states
@@ -134,7 +78,9 @@ def apply_seal(row):
 
     mode = int(csv_val(row, "TST_SepSealControlTyp"))
 
-    # Pressure source (shared)
+    # -------------------------------
+    # PRESSURE SOURCE (shared)
+    # -------------------------------
     p = max(csv_val(row, "TST_SepSealPSet1"), csv_val(row, "TST_SepSealPSet2"))
     if p > 0:
         if p <= 10:
@@ -144,16 +90,28 @@ def apply_seal(row):
         else:
             vs["V-106"] = True
 
+    # -------------------------------
     # FLOW MODE
+    # -------------------------------
     if mode == 0:
-        if csv_val(row, "TST_SepSealFlwSet1") > 0:
+        f1 = csv_val(row, "TST_SepSealFlwSet1")
+        f2 = csv_val(row, "TST_SepSealFlwSet2")
+
+        if f1 > 0:
             vs["V-212"] = True
             vs["V-214"] = True
-        if csv_val(row, "TST_SepSealFlwSet2") > 0:
+            if f1 > 500:
+                vs["V-216"] = True   # NDE booster
+
+        if f2 > 0:
             vs["V-213"] = True
             vs["V-215"] = True
+            if f2 > 500:
+                vs["V-217"] = True   # DE booster
 
+    # -------------------------------
     # PRESSURE MODE
+    # -------------------------------
     if mode == 1:
         if csv_val(row, "TST_SepSealPSet1") > 0:
             vs["V-212"] = True
@@ -186,18 +144,21 @@ def render(panel):
     pipes = load_json(cfg["pipes"])
 
     for i, p in enumerate(pipes):
+        active = pipe_active(i, valves)
         draw.line(
             [(p["x1"], p["y1"]), (p["x2"], p["y2"])],
-            fill=(0,255,0) if pipe_active(i, valves) else (80,80,100),
-            width=6 if pipe_active(i, valves) else 4
+            fill=(0, 255, 0) if active else (90, 90, 110),
+            width=6 if active else 4
         )
 
     for t, v in valves.items():
+        open_ = st.session_state.valve_states.get(t)
         draw.ellipse(
-            [v["x"]-7, v["y"]-7, v["x"]+7, v["y"]+7],
-            fill=(0,255,0) if st.session_state.valve_states.get(t) else (255,0,0)
+            [v["x"] - 7, v["y"] - 7, v["x"] + 7, v["y"] + 7],
+            fill=(0, 255, 0) if open_ else (255, 0, 0),
+            outline="white"
         )
-        draw.text((v["x"]+10, v["y"]-10), t, fill="white")
+        draw.text((v["x"] + 10, v["y"] - 10), t, fill="white")
 
     return img
 
@@ -211,7 +172,7 @@ with st.sidebar:
         "Panel", list(PANELS), format_func=lambda k: PANELS[k]["name"]
     )
 
-    up = st.file_uploader("Upload CSV", type="csv")
+    up = st.file_uploader("Upload Separation Seal CSV", type="csv")
     if up:
         cid = (up.name, up.size)
         if cid != st.session_state.csv_id:
@@ -226,7 +187,7 @@ with st.sidebar:
             st.rerun()
         if c2.button("Next ▶"):
             st.session_state.step = min(
-                len(st.session_state.csv)-1,
+                len(st.session_state.csv) - 1,
                 st.session_state.step + 1
             )
             st.rerun()
@@ -236,15 +197,25 @@ with st.sidebar:
 # =========================================================
 if st.session_state.csv is not None:
     row = st.session_state.csv.iloc[st.session_state.step]
-    ttype = detect_test_type(st.session_state.csv)
-
-    if ttype == "DGS":
-        apply_dgs(row)
-    elif ttype == "SEAL":
-        apply_seal(row)
+    apply_seal(row)
 
 st.title(PANELS[st.session_state.panel]["name"])
 st.image(render(st.session_state.panel), use_container_width=True)
 
+# =========================================================
+# STEP TABLE (NEW)
+# =========================================================
 if st.session_state.csv is not None:
-    st.markdown(f"**Step {st.session_state.step+1} / {len(st.session_state.csv)}**")
+    st.markdown("### 🧾 Test Steps (Current Highlighted)")
+    df = st.session_state.csv.copy()
+    df.insert(0, "STEP", range(1, len(df) + 1))
+
+    st.dataframe(
+        df,
+        height=300,
+        use_container_width=True
+    )
+
+    st.markdown(
+        f"**▶ Current Step:** {st.session_state.step + 1} / {len(df)}"
+    )
