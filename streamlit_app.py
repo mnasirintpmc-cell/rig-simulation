@@ -43,12 +43,10 @@ PANELS = {
 }
 
 # =========================================================
-# SESSION STATE
+# SESSION STATE (CLEAN)
 # =========================================================
 if "csv" not in st.session_state:
     st.session_state.csv = None
-if "csv_loaded" not in st.session_state:
-    st.session_state.csv_loaded = False
 if "step" not in st.session_state:
     st.session_state.step = 0
 if "panel" not in st.session_state:
@@ -71,26 +69,22 @@ def csv_val(row, key):
     return float(row[key]) if key in row else 0.0
 
 # =========================================================
-# APPLY STEP (FINAL, CORRECTED)
+# APPLY STEP (UNCHANGED LOGIC)
 # =========================================================
 def apply_step(row):
     vs = st.session_state.valve_states
     vs.clear()
 
-    # -------------------------------
-    # CELL PRESSURE SELECTION (FIXED)
-    # -------------------------------
     cell_p = csv_val(row, "TST_CellPresDemand")
 
     v108 = v107 = v106 = False
-
     if cell_p > 0:
         if cell_p <= 10:
-            v108 = True          # LOW
+            v108 = True
         elif cell_p <= 100:
-            v107 = True          # MEDIUM
+            v107 = True
         else:
-            v106 = True          # HIGH (100–450)
+            v106 = True
 
     if v108: vs["V-108"] = True
     if v107: vs["V-107"] = True
@@ -98,9 +92,6 @@ def apply_step(row):
 
     cell_active = v108 or v107 or v106
 
-    # -------------------------------
-    # INTERSPACE SOURCE
-    # -------------------------------
     inter_source = (
         csv_val(row, "TST_InterBPDemand_NDE") > 0
         or csv_val(row, "TST_InterBPDemand_DE") > 0
@@ -110,9 +101,6 @@ def apply_step(row):
         vs["V-110"] = True
         vs["V-109"] = True
 
-    # -------------------------------
-    # INTERSPACE ENABLES
-    # -------------------------------
     nde_enable = csv_val(row, "TST_InterBPDemand_NDE") > 0
     de_enable  = csv_val(row, "TST_InterBPDemand_DE") > 0
 
@@ -122,32 +110,21 @@ def apply_step(row):
     nde_active = inter_source and nde_enable
     de_active  = inter_source and de_enable
 
-    # -------------------------------
-    # BACK PRESSURE – SUPPLY SIDE
-    # -------------------------------
     if nde_active:
         vs["V-115"] = True
     if de_active:
         vs["V-116"] = True
 
-    # -------------------------------
-    # GAS INJECTION – RETURN SIDE
-    # -------------------------------
     gas_injection = csv_val(row, "TST_GasInjectionDemand") > 0
-
     if gas_injection:
         vs["V-206"] = True
         vs["V-207"] = True
 
     if "V-115" in vs:
         vs["V-204"] = True
-
     if "V-116" in vs:
         vs["V-208"] = True
 
-    # -------------------------------
-    # DGS VALVES
-    # -------------------------------
     if cell_active:
         vs["cell"] = True
     if nde_active:
@@ -217,11 +194,11 @@ with st.sidebar:
     )
 
     csv_file = st.file_uploader("Upload Test CSV", type=["csv"])
-    if csv_file and not st.session_state.csv_loaded:
+
+    if csv_file is not None:
         st.session_state.csv = pd.read_csv(csv_file, sep=";")
         st.session_state.step = 0
-        st.session_state.csv_loaded = True
-        st.success("CSV loaded")
+        st.success("CSV loaded (replaced)")
 
     if st.session_state.csv is not None:
         col1, col2 = st.columns(2)
@@ -236,11 +213,6 @@ with st.sidebar:
                     st.session_state.step + 1
                 )
                 st.rerun()
-
-    st.markdown("---")
-    st.subheader("Pressure State")
-    for k, v in st.session_state.pressure_state.items():
-        st.write(f"{k}: {'ON' if v else 'OFF'}")
 
 # =========================================================
 # MAIN
