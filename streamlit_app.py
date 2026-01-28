@@ -6,7 +6,16 @@ from PIL import Image, ImageDraw
 
 st.set_page_config("Rig Simulation", "🏭", layout="wide")
 
+# =========================================================
+# PANELS (ALL PRESENT)
+# =========================================================
 PANELS = {
+    "mixing": {
+        "name": "Gas Mixing Panel",
+        "valves": "data/valves_mixing.json",
+        "pipes": "data/pipes_mixing.json",
+        "image": "assets/p&id_mixing.png",
+    },
     "supply": {
         "name": "Pressure Supply Panel",
         "valves": "data/valves_pressure_in.json",
@@ -25,29 +34,27 @@ PANELS = {
         "pipes": "data/pipes_pressure_return.json",
         "image": "assets/p&id_pressure_return.png",
     },
+    "seal": {
+        "name": "Separation Seal Panel",
+        "valves": "data/valves_separation_seal.json",
+        "pipes": "data/pipes_separation_seal.json",
+        "image": "assets/p&id_separation_seal.png",
+    },
 }
 
 # =========================================================
-# SESSION STATE
+# SESSION STATE (GLOBAL, NOT PER PANEL)
 # =========================================================
-if "panel" not in st.session_state:
-    st.session_state.panel = "supply"
-
 if "csv" not in st.session_state:
     st.session_state.csv = None
-
 if "step" not in st.session_state:
     st.session_state.step = 0
-
+if "panel" not in st.session_state:
+    st.session_state.panel = "mixing"
 if "valve_states" not in st.session_state:
     st.session_state.valve_states = {}
-
 if "flow_state" not in st.session_state:
-    st.session_state.flow_state = {
-        "cell": False,
-        "nde": False,
-        "de": False,
-    }
+    st.session_state.flow_state = {"cell": False, "nde": False, "de": False}
 
 # =========================================================
 # HELPERS
@@ -60,62 +67,43 @@ def csv_val(row, key):
     return float(row[key]) if key in row else 0.0
 
 # =========================================================
-# SUPPLY → FLOW STATE
+# STEP → VALVES (SUPPLY + MIXING)
 # =========================================================
-def update_flow_from_supply(valves):
+def apply_step(row):
+    st.session_state.valve_states.clear()
     fs = {"cell": False, "nde": False, "de": False}
 
-    for tag, open_ in st.session_state.valve_states.items():
-        if not open_:
-            continue
+    # ---- MIXING ----
+    if csv_val(row, "TST_GasInjectionDemand") > 0:
+        st.session_state.valve_states["MIXING_ON"] = True
 
-        if tag in ["V-402", "V-404", "V-408"]:
-            fs["cell"] = True
-        if tag == "V-112":
-            fs["nde"] = True
-        if tag == "V-113":
-            fs["de"] = True
+    # ---- PRESSURE SUPPLY ----
+    if csv_val(row, "TST_CellPresDemand") > 0:
+        fs["cell"] = True
+    if csv_val(row, "TST_InterBPDemand_NDE") > 0:
+        fs["nde"] = True
+    if csv_val(row, "TST_InterBPDemand_DE") > 0:
+        fs["de"] = True
 
     st.session_state.flow_state = fs
 
-# =========================================================
-# FLOW STATE → DGS + RETURN
-# =========================================================
-def propagate_flow():
-    fs = st.session_state.flow_state
-
-    # DGS
+    # ---- DGS ----
     if fs["nde"]:
-        st.session_state.valve_states["V-112_IN"] = True
-        st.session_state.valve_states["V-112_OUT"] = True
+        st.session_state.valve_states["V-202"] = True
     if fs["de"]:
-        st.session_state.valve_states["V-113_IN"] = True
-        st.session_state.valve_states["V-113_OUT"] = True
-
-    # RETURN
-    st.session_state.valve_states["V-202"] = fs["nde"]
-    st.session_state.valve_states["V-210"] = fs["de"]
+        st.session_state.valve_states["V-210"] = True
 
 # =========================================================
-# APPLY CSV STEP
+# PIPE ACTIVE
 # =========================================================
-def apply_step(row):
-    # RESET
-    for k in st.session_state.valve_states:
-        st.session_state.valve_states[k] = False
-
-    # SUPPLY LOGIC
-    if csv_val(row, "TST_CellPresDemand") > 0:
-        st.session_state.valve_states["V-402"] = True
-
-    if csv_val(row, "TST_InterBPDemand_NDE") > 0:
-        st.session_state.valve_states["V-112"] = True
-
-    if csv_val(row, "TST_InterBPDemand_DE") > 0:
-        st.session_state.valve_states["V-113"] = True
-
-    update_flow_from_supply(None)
-    propagate_flow()
+def pipe_active(panel, pipe_idx, valves):
+    pipe_no = pipe_idx + 1
+    for tag, data in valves.items():
+        if st.session_state.valve_states.get(tag, False):
+            key = next((k for k in data if k.startswith("pipes")), None)
+            if key and pipe_no in data[key]:
+                return True
+    return False
 
 # =========================================================
 # RENDER
@@ -129,12 +117,7 @@ def render(panel):
     pipes = load_json(cfg["pipes"])
 
     for i, p in enumerate(pipes):
-        active = False
-        for tag, data in valves.items():
-            if st.session_state.valve_states.get(tag, False):
-                key = next((k for k in data if k.startswith("pipes")), None)
-                if key and (i + 1) in data[key]:
-                    active = True
+        active = pipe_active(panel, i, valves)
         draw.line(
             [(p["x1"], p["y1"]), (p["x2"], p["y2"])],
             fill=(0,255,0) if active else (80,80,100),
@@ -153,25 +136,29 @@ def render(panel):
     return img
 
 # =========================================================
-# UI
+# SIDEBAR (GLOBAL CSV + STEP)
 # =========================================================
 with st.sidebar:
+    st.title("🏭 Rig Control")
+
     st.session_state.panel = st.selectbox(
-        "Select Panel", list(PANELS.keys()),
+        "Select Panel",
+        list(PANELS.keys()),
         format_func=lambda k: PANELS[k]["name"]
     )
 
-    csv_file = st.file_uploader("Upload Pressure CSV", type=["csv"])
+    csv_file = st.file_uploader("Upload Test CSV", type=["csv"])
     if csv_file:
         st.session_state.csv = pd.read_csv(csv_file, sep=";")
         st.session_state.step = 0
         st.success("CSV loaded")
 
-    if st.button("⏭ Next Step") and st.session_state.csv is not None:
-        st.session_state.step += 1
-        if st.session_state.step >= len(st.session_state.csv):
-            st.session_state.step = len(st.session_state.csv) - 1
-        st.rerun()
+    if st.session_state.csv is not None:
+        if st.button("⏭ Next Step"):
+            st.session_state.step += 1
+            if st.session_state.step >= len(st.session_state.csv):
+                st.session_state.step = len(st.session_state.csv) - 1
+            st.rerun()
 
 # =========================================================
 # MAIN
