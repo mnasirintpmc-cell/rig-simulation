@@ -56,13 +56,7 @@ if "panel" not in st.session_state:
 if "valve_states" not in st.session_state:
     st.session_state.valve_states = {}
 if "pressure_state" not in st.session_state:
-    st.session_state.pressure_state = {
-        "cell": False,
-        "nde": False,
-        "de": False,
-        "bp_nde": False,
-        "bp_de": False,
-    }
+    st.session_state.pressure_state = {}
 
 # =========================================================
 # HELPERS
@@ -77,7 +71,7 @@ def csv_val(row, key):
     return float(row[key]) if key in row else 0.0
 
 # =========================================================
-# APPLY STEP (FINAL AUTHORITATIVE LOGIC)
+# APPLY STEP (SUPPLY + DGS + RETURN)
 # =========================================================
 def apply_step(row):
     vs = st.session_state.valve_states
@@ -87,8 +81,8 @@ def apply_step(row):
     # CELL PRESSURE SELECTION
     # -------------------------------
     cell_p = csv_val(row, "TST_CellPresDemand")
-
     v108 = v106 = v107 = False
+
     if cell_p > 0:
         if cell_p <= 10:
             v108 = True
@@ -116,42 +110,47 @@ def apply_step(row):
         vs["V-109"] = True
 
     # -------------------------------
-    # INTERSPACE ENABLES (CSV DRIVEN)
+    # INTERSPACE ENABLES
     # -------------------------------
     nde_enable = csv_val(row, "TST_InterBPDemand_NDE") > 0
     de_enable  = csv_val(row, "TST_InterBPDemand_DE") > 0
 
-    if nde_enable:
-        vs["V-112"] = True
-    if de_enable:
-        vs["V-113"] = True
+    if nde_enable: vs["V-112"] = True
+    if de_enable:  vs["V-113"] = True
 
     nde_active = inter_source and nde_enable
     de_active  = inter_source and de_enable
 
     # -------------------------------
-    # BACK PRESSURE INJECTION
+    # BACK PRESSURE – SUPPLY SIDE
     # -------------------------------
-    bp_nde_cmd = csv_val(row, "TST_InterPresDemand") > 0 and nde_active
-    bp_de_cmd  = csv_val(row, "TST_InterPresDemand") > 0 and de_active
+    if nde_active:
+        vs["V-115"] = True
+    if de_active:
+        vs["V-116"] = True
 
-    if bp_nde_cmd:
-        vs["V-115"] = True   # BP source NDE
-        vs["V-206"] = True   # BP return NDE
+    # -------------------------------
+    # BACK PRESSURE – RETURN SIDE
+    # -------------------------------
+    gas_injection = csv_val(row, "TST_GasInjectionDemand") > 0
 
-    if bp_de_cmd:
-        vs["V-116"] = True   # BP source DE
-        vs["V-207"] = True   # BP return DE
+    if gas_injection:
+        vs["V-206"] = True
+        vs["V-208"] = True
+
+    if "V-115" in vs:
+        vs["V-204"] = True
+
+    if "V-116" in vs:
+        vs["V-208"] = True
 
     # -------------------------------
     # DGS VALVES
     # -------------------------------
     if cell_active:
         vs["cell"] = True
-
     if nde_active:
         vs["NDE in"] = True
-
     if de_active:
         vs["DE in"] = True
 
@@ -159,8 +158,7 @@ def apply_step(row):
         "cell": cell_active,
         "nde": nde_active,
         "de": de_active,
-        "bp_nde": bp_nde_cmd,
-        "bp_de": bp_de_cmd,
+        "gas_injection": gas_injection,
     }
 
 # =========================================================
@@ -190,7 +188,7 @@ def render(panel):
         active = pipe_active(i, valves)
         draw.line(
             [(p["x1"], p["y1"]), (p["x2"], p["y2"])],
-            fill=(0, 255, 0) if active else (80, 80, 100),
+            fill=(0, 255, 0) if active else (90, 90, 110),
             width=6 if active else 4,
         )
 
@@ -225,11 +223,18 @@ with st.sidebar:
         st.success("CSV loaded")
 
     if st.session_state.csv is not None:
-        if st.button("⏭ Next Step"):
-            st.session_state.step += 1
-            if st.session_state.step >= len(st.session_state.csv):
-                st.session_state.step = len(st.session_state.csv) - 1
-            st.rerun()
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("⏮ Previous Step"):
+                st.session_state.step = max(0, st.session_state.step - 1)
+                st.rerun()
+        with col2:
+            if st.button("⏭ Next Step"):
+                st.session_state.step = min(
+                    len(st.session_state.csv) - 1,
+                    st.session_state.step + 1
+                )
+                st.rerun()
 
     st.markdown("---")
     st.subheader("Pressure State")
