@@ -58,8 +58,8 @@ if "valve_states" not in st.session_state:
     st.session_state.valve_states = {}
 if "playing" not in st.session_state:
     st.session_state.playing = False
-if "next_time" not in st.session_state:
-    st.session_state.next_time = None
+if "step_start_time" not in st.session_state:
+    st.session_state.step_start_time = None
 
 # =========================================================
 # HELPERS
@@ -196,7 +196,6 @@ with st.sidebar:
     )
 
     uploaded = st.file_uploader("Upload Test CSV", type=["csv"])
-
     if uploaded is not None:
         cid = (uploaded.name, uploaded.size)
         if cid != st.session_state.csv_id:
@@ -204,30 +203,41 @@ with st.sidebar:
             st.session_state.csv_id = cid
             st.session_state.step = 0
             st.session_state.playing = False
-            st.session_state.next_time = None
+            st.session_state.step_start_time = None
 
     if st.session_state.csv is not None:
         c1, c2 = st.columns(2)
         if c1.button("⏮ Previous Step"):
             st.session_state.step = max(0, st.session_state.step - 1)
             st.session_state.playing = False
+            st.session_state.step_start_time = None
             st.rerun()
+
         if c2.button("⏭ Next Step"):
             st.session_state.step = min(
                 len(st.session_state.csv) - 1,
                 st.session_state.step + 1
             )
             st.session_state.playing = False
+            st.session_state.step_start_time = None
             st.rerun()
 
         c3, c4 = st.columns(2)
         if c3.button("▶ Play"):
             st.session_state.playing = True
-            st.session_state.next_time = None
+            st.session_state.step_start_time = None
             st.rerun()
+
         if c4.button("⏸ Pause"):
             st.session_state.playing = False
+            st.session_state.step_start_time = None
             st.rerun()
+
+# =========================================================
+# AUTO REFRESH CLOCK (THIS IS THE KEY FIX)
+# =========================================================
+if st.session_state.playing:
+    st.autorefresh(interval=500, key="play_clock")
 
 # =========================================================
 # AUTO STEP ADVANCE (CSV TST_StepDuration ONLY)
@@ -239,20 +249,15 @@ if st.session_state.playing and st.session_state.csv is not None:
     if duration <= 0:
         duration = 1
 
-    if st.session_state.next_time is None:
-        st.session_state.next_time = time.time() + duration
+    if st.session_state.step_start_time is None:
+        st.session_state.step_start_time = time.time()
 
-    if time.time() >= st.session_state.next_time:
+    if time.time() - st.session_state.step_start_time >= duration:
         if st.session_state.step < len(st.session_state.csv) - 1:
             st.session_state.step += 1
-            next_row = st.session_state.csv.iloc[st.session_state.step]
-            st.session_state.next_time = time.time() + csv_val(
-                next_row, "TST_StepDuration"
-            )
+            st.session_state.step_start_time = time.time()
         else:
             st.session_state.playing = False
-
-    st.rerun()
 
 # =========================================================
 # MAIN
