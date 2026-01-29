@@ -72,7 +72,7 @@ def is_seal_csv(df):
     return "TST_SepSealControlTyp" in df.columns
 
 # =========================================================
-# DGS LOGIC (UNCHANGED – VERIFIED WORKING)
+# DGS LOGIC (UNCHANGED)
 # =========================================================
 def apply_dgs_step(row):
     vs = st.session_state.valve_states
@@ -124,13 +124,12 @@ def apply_dgs_step(row):
     if de:  vs["DE in"] = True
 
 # =========================================================
-# SEPARATION SEAL LOGIC (SIMPLIFIED – FINAL)
+# SEPARATION SEAL LOGIC (FINAL)
 # =========================================================
 def apply_seal_step(row):
     vs = st.session_state.valve_states
     vs.clear()
 
-    # Control mode exists but does not affect valve selection anymore
     flow = max(
         csv_val(row, "TST_SepSealFlwSet1"),
         csv_val(row, "TST_SepSealFlwSet2")
@@ -141,9 +140,7 @@ def apply_seal_step(row):
         csv_val(row, "TST_SepSealPSet2")
     )
 
-    # -------------------------------
-    # PRESSURE SUPPLY SELECTION
-    # -------------------------------
+    # Pressure supply selection
     if pressure > 0:
         if pressure <= 10:
             vs["V-108"] = True
@@ -152,36 +149,20 @@ def apply_seal_step(row):
         else:
             vs["V-106"] = True
 
-    # -------------------------------
-    # MAIN SEAL PATHS (ANY FLOW)
-    # -------------------------------
+    # Main seal paths
     if flow > 0 or pressure > 0:
         vs["V-212"] = True
         vs["V-213"] = True
         vs["V-214"] = True
         vs["V-215"] = True
 
-    # -------------------------------
-    # HIGH FLOW BOOSTERS
-    # -------------------------------
+    # High-flow boosters
     if flow > 500:
         vs["V-216"] = True
         vs["V-217"] = True
 
 # =========================================================
-# PIPE ACTIVE
-# =========================================================
-def pipe_active(pipe_idx, valves):
-    pipe_no = pipe_idx + 1
-    for tag, data in valves.items():
-        if st.session_state.valve_states.get(tag, False):
-            key = next((k for k in data if k.startswith("pipes")), None)
-            if key and pipe_no in data[key]:
-                return True
-    return False
-
-# =========================================================
-# RENDER
+# RENDER (VALVES ONLY – PIPES PASSIVE)
 # =========================================================
 def render(panel):
     cfg = PANELS[panel]
@@ -189,15 +170,6 @@ def render(panel):
     draw = ImageDraw.Draw(img)
 
     valves = load_json(cfg["valves"])
-    pipes = load_json(cfg["pipes"])
-
-    for i, p in enumerate(pipes):
-        active = pipe_active(i, valves)
-        draw.line(
-            [(p["x1"], p["y1"]), (p["x2"], p["y2"])],
-            fill=(0, 255, 0) if active else (90, 90, 110),
-            width=6 if active else 4,
-        )
 
     for tag, v in valves.items():
         open_ = st.session_state.valve_states.get(tag, False)
