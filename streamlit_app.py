@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import json
 import os
+import time
 from PIL import Image, ImageDraw
 
 st.set_page_config("Rig Simulation", "🏭", layout="wide")
@@ -13,31 +14,26 @@ PANELS = {
     "mixing": {
         "name": "Gas Mixing Panel",
         "valves": "data/valves_mixing.json",
-        "pipes": "data/pipes_mixing.json",
         "image": "assets/p&id_mixing.png",
     },
     "supply": {
         "name": "Pressure Supply Panel",
         "valves": "data/valves_pressure_in.json",
-        "pipes": "data/pipes_pressure_in.json",
         "image": "assets/p&id_pressure_in.png",
     },
     "dgs": {
         "name": "DGS Panel",
         "valves": "data/valves_dgs.json",
-        "pipes": "data/pipes_dgs.json",
         "image": "assets/p&id_dgs.png",
     },
     "return": {
         "name": "Pressure Return Panel",
         "valves": "data/valves_pressure_return.json",
-        "pipes": "data/pipes_pressure_return.json",
         "image": "assets/p&id_pressure_return.png",
     },
     "seal": {
         "name": "Separation Seal Panel",
         "valves": "data/valves_separation_seal.json",
-        "pipes": "data/pipes_separation_seal.json",
         "image": "assets/p&id_separation_seal.png",
     },
 }
@@ -55,6 +51,10 @@ if "panel" not in st.session_state:
     st.session_state.panel = "mixing"
 if "valve_states" not in st.session_state:
     st.session_state.valve_states = {}
+if "playing" not in st.session_state:
+    st.session_state.playing = False
+if "next_time" not in st.session_state:
+    st.session_state.next_time = None
 
 # =========================================================
 # HELPERS
@@ -110,7 +110,6 @@ def apply_dgs_step(row):
         vs["V-207"] = True
         vs["V-115"] = True
         vs["V-116"] = True
-        nde = de = True
     else:
         if nde:
             vs["V-115"] = True
@@ -140,7 +139,6 @@ def apply_seal_step(row):
         csv_val(row, "TST_SepSealPSet2")
     )
 
-    # Pressure supply selection
     if pressure > 0:
         if pressure <= 10:
             vs["V-108"] = True
@@ -149,20 +147,18 @@ def apply_seal_step(row):
         else:
             vs["V-106"] = True
 
-    # Main seal paths
     if flow > 0 or pressure > 0:
         vs["V-212"] = True
         vs["V-213"] = True
         vs["V-214"] = True
         vs["V-215"] = True
 
-    # High-flow boosters
     if flow > 500:
         vs["V-216"] = True
         vs["V-217"] = True
 
 # =========================================================
-# RENDER (VALVES ONLY – PIPES PASSIVE)
+# RENDER (VALVES ONLY)
 # =========================================================
 def render(panel):
     cfg = PANELS[panel]
@@ -183,7 +179,7 @@ def render(panel):
     return img
 
 # =========================================================
-# SIDEBAR
+# SIDEBAR – CONTROLS
 # =========================================================
 with st.sidebar:
     st.title("🏭 Rig Control")
@@ -195,25 +191,56 @@ with st.sidebar:
     )
 
     uploaded = st.file_uploader("Upload Test CSV", type=["csv"])
-
-    if uploaded is not None:
+    if uploaded:
         cid = (uploaded.name, uploaded.size)
         if cid != st.session_state.csv_id:
             st.session_state.csv = pd.read_csv(uploaded, sep=";")
             st.session_state.csv_id = cid
             st.session_state.step = 0
+            st.session_state.playing = False
+            st.session_state.next_time = None
 
     if st.session_state.csv is not None:
-        c1, c2 = st.columns(2)
-        if c1.button("⏮ Previous Step"):
+        col1, col2 = st.columns(2)
+        if col1.button("▶ Play"):
+            st.session_state.playing = True
+            st.session_state.next_time = time.time()
+        if col2.button("⏸ Pause"):
+            st.session_state.playing = False
+
+        col3, col4 = st.columns(2)
+        if col3.button("⏮ Previous"):
             st.session_state.step = max(0, st.session_state.step - 1)
-            st.rerun()
-        if c2.button("⏭ Next Step"):
+        if col4.button("⏭ Next"):
             st.session_state.step = min(
                 len(st.session_state.csv) - 1,
                 st.session_state.step + 1
             )
-            st.rerun()
+
+# =========================================================
+# AUTO STEP ADVANCE
+# =========================================================
+if st.session_state.playing and st.session_state.csv is not None:
+    row = st.session_state.csv.iloc[st.session_state.step]
+    duration = csv_val(row, "TST_StepDuration")
+
+    if duration <= 0:
+        duration = 1  # safety
+
+    if st.session_state.next_time is None:
+        st.session_state.next_time = time.time() + duration
+
+    if time.time() >= st.session_state.next_time:
+        if st.session_state.step < len(st.session_state.csv) - 1:
+            st.session_state.step += 1
+            st.session_state.next_time = time.time() + csv_val(
+                st.session_state.csv.iloc[st.session_state.step],
+                "TST_StepDuration",
+            )
+        else:
+            st.session_state.playing = False
+
+    st.experimental_rerun()
 
 # =========================================================
 # MAIN
