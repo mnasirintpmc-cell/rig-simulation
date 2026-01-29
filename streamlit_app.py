@@ -72,7 +72,7 @@ def is_seal_csv(df):
     return "TST_SepSealControlTyp" in df.columns
 
 # =========================================================
-# DGS LOGIC (UNCHANGED)
+# DGS LOGIC (WORKING BASELINE)
 # =========================================================
 def apply_dgs_step(row):
     vs = st.session_state.valve_states
@@ -123,7 +123,7 @@ def apply_dgs_step(row):
     if de:  vs["DE in"] = True
 
 # =========================================================
-# SEPARATION SEAL LOGIC (FINAL)
+# SEPARATION SEAL LOGIC (SIMPLIFIED)
 # =========================================================
 def apply_seal_step(row):
     vs = st.session_state.valve_states
@@ -139,6 +139,7 @@ def apply_seal_step(row):
         csv_val(row, "TST_SepSealPSet2")
     )
 
+    # Pressure supply
     if pressure > 0:
         if pressure <= 10:
             vs["V-108"] = True
@@ -147,12 +148,14 @@ def apply_seal_step(row):
         else:
             vs["V-106"] = True
 
+    # Main seal paths
     if flow > 0 or pressure > 0:
         vs["V-212"] = True
         vs["V-213"] = True
         vs["V-214"] = True
         vs["V-215"] = True
 
+    # High flow boosters
     if flow > 500:
         vs["V-216"] = True
         vs["V-217"] = True
@@ -179,7 +182,7 @@ def render(panel):
     return img
 
 # =========================================================
-# SIDEBAR – CONTROLS
+# SIDEBAR
 # =========================================================
 with st.sidebar:
     st.title("🏭 Rig Control")
@@ -204,7 +207,7 @@ with st.sidebar:
         col1, col2 = st.columns(2)
         if col1.button("▶ Play"):
             st.session_state.playing = True
-            st.session_state.next_time = time.time()
+            st.session_state.next_time = None
         if col2.button("⏸ Pause"):
             st.session_state.playing = False
 
@@ -218,14 +221,14 @@ with st.sidebar:
             )
 
 # =========================================================
-# AUTO STEP ADVANCE
+# AUTO STEP ADVANCE (CSV DURATION ONLY)
 # =========================================================
 if st.session_state.playing and st.session_state.csv is not None:
     row = st.session_state.csv.iloc[st.session_state.step]
-    duration = csv_val(row, "TST_StepDuration")
 
+    duration = csv_val(row, "TST_StepDuration")
     if duration <= 0:
-        duration = 1  # safety
+        duration = 1
 
     if st.session_state.next_time is None:
         st.session_state.next_time = time.time() + duration
@@ -233,14 +236,14 @@ if st.session_state.playing and st.session_state.csv is not None:
     if time.time() >= st.session_state.next_time:
         if st.session_state.step < len(st.session_state.csv) - 1:
             st.session_state.step += 1
+            next_row = st.session_state.csv.iloc[st.session_state.step]
             st.session_state.next_time = time.time() + csv_val(
-                st.session_state.csv.iloc[st.session_state.step],
-                "TST_StepDuration",
+                next_row, "TST_StepDuration"
             )
         else:
             st.session_state.playing = False
 
-    st.experimental_rerun()
+    st.rerun()
 
 # =========================================================
 # MAIN
