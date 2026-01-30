@@ -10,11 +10,6 @@ st.set_page_config("Rig Simulation", "🏭", layout="wide")
 # PANELS
 # =========================================================
 PANELS = {
-    "mixing": {
-        "name": "Gas Mixing Panel",
-        "valves": "data/valves_mixing.json",
-        "image": "assets/p&id_mixing.png",
-    },
     "pressure_in": {
         "name": "Pressure Supply Panel",
         "valves": "data/valves_pressure_in.json",
@@ -42,18 +37,18 @@ PANELS = {
 # =========================================================
 if "panel" not in st.session_state:
     st.session_state.panel = "pressure_in"
-if "calibration" not in st.session_state:
-    st.session_state.calibration = False
-if "cal_x" not in st.session_state:
-    st.session_state.cal_x = 400
-if "cal_y" not in st.session_state:
-    st.session_state.cal_y = 300
 if "csv" not in st.session_state:
     st.session_state.csv = None
 if "step" not in st.session_state:
     st.session_state.step = 0
 if "valve_states" not in st.session_state:
     st.session_state.valve_states = {}
+if "calibration" not in st.session_state:
+    st.session_state.calibration = False
+if "cal_x" not in st.session_state:
+    st.session_state.cal_x = 400
+if "cal_y" not in st.session_state:
+    st.session_state.cal_y = 300
 
 # =========================================================
 # HELPERS
@@ -64,11 +59,16 @@ def load_json(path):
             return json.load(f)
     return {}
 
+def csv_val(row, key):
+    if row is None:
+        return 0
+    return float(row[key]) if key in row and pd.notna(row[key]) else 0
+
 def draw_indicator(draw, x, y, text, highlight=False):
     pad = 4
     w = 8 * len(text)
     h = 16
-    bg = (100, 100, 100) if highlight else (40, 40, 40)
+    bg = (80, 80, 80) if highlight else (40, 40, 40)
 
     draw.rectangle(
         [x, y, x + w + pad * 2, y + h + pad * 2],
@@ -84,16 +84,29 @@ def render(panel):
     img = Image.open(cfg["image"]).convert("RGBA")
     draw = ImageDraw.Draw(img)
 
-    # ---- valves (visual only) ----
+    # ---- valves ----
     valves = load_json(cfg["valves"])
     for tag, v in valves.items():
-        open_ = st.session_state.valve_states.get(tag, False)
         draw.ellipse(
             [v["x"] - 7, v["y"] - 7, v["x"] + 7, v["y"] + 7],
-            fill=(0, 255, 0) if open_ else (255, 0, 0),
+            fill=(255, 0, 0),
             outline="white",
         )
         draw.text((v["x"] + 10, v["y"] - 10), tag, fill="white")
+
+    # ---- REAL INDICATORS (NORMAL MODE) ----
+    if not st.session_state.calibration:
+        ind_path = f"data/indicators_{panel}.json"
+        indicators = load_json(ind_path)
+
+        row = None
+        if st.session_state.csv is not None:
+            row = st.session_state.csv.iloc[st.session_state.step]
+
+        for name, ind in indicators.items():
+            value = csv_val(row, ind.get("source", ""))
+            text = f"{value:.1f} {ind.get('unit', '')}"
+            draw_indicator(draw, ind["x"], ind["y"], text)
 
     # ---- GENERIC CALIBRATION INDICATOR ----
     if st.session_state.calibration:
@@ -139,22 +152,9 @@ with st.sidebar:
     if st.session_state.calibration:
         st.markdown("---")
         st.subheader("🧪 Generic Indicator Position")
-
-        st.session_state.cal_x = st.number_input(
-            "X position",
-            value=st.session_state.cal_x,
-            step=1
-        )
-
-        st.session_state.cal_y = st.number_input(
-            "Y position",
-            value=st.session_state.cal_y,
-            step=1
-        )
-
-        st.info(
-            "Use these X/Y values in indicators_<panel>.json later"
-        )
+        st.session_state.cal_x = st.number_input("X", value=st.session_state.cal_x)
+        st.session_state.cal_y = st.number_input("Y", value=st.session_state.cal_y)
+        st.info("Copy X/Y into indicators_<panel>.json")
 
 # =========================================================
 # MAIN
