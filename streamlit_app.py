@@ -40,18 +40,20 @@ PANELS = {
 # =========================================================
 # SESSION STATE
 # =========================================================
+if "panel" not in st.session_state:
+    st.session_state.panel = "pressure_in"
+if "calibration" not in st.session_state:
+    st.session_state.calibration = False
+if "cal_x" not in st.session_state:
+    st.session_state.cal_x = 400
+if "cal_y" not in st.session_state:
+    st.session_state.cal_y = 300
 if "csv" not in st.session_state:
     st.session_state.csv = None
 if "step" not in st.session_state:
     st.session_state.step = 0
-if "panel" not in st.session_state:
-    st.session_state.panel = "pressure_in"
 if "valve_states" not in st.session_state:
     st.session_state.valve_states = {}
-if "calibration" not in st.session_state:
-    st.session_state.calibration = False
-if "selected_indicator" not in st.session_state:
-    st.session_state.selected_indicator = None
 
 # =========================================================
 # HELPERS
@@ -62,30 +64,17 @@ def load_json(path):
             return json.load(f)
     return {}
 
-def save_json(path, data):
-    with open(path, "w") as f:
-        json.dump(data, f, indent=2)
-
-def csv_val(row, key):
-    if row is None:
-        return 0.0
-    return float(row[key]) if key in row and pd.notna(row[key]) else 0.0
-
-def draw_indicator(draw, x, y, text, selected=False):
+def draw_indicator(draw, x, y, text, highlight=False):
     pad = 4
     w = 8 * len(text)
     h = 16
-    bg = (60, 60, 60) if not selected else (100, 100, 100)
+    bg = (100, 100, 100) if highlight else (40, 40, 40)
 
     draw.rectangle(
         [x, y, x + w + pad * 2, y + h + pad * 2],
         fill=bg
     )
-    draw.text(
-        (x + pad, y + pad),
-        text,
-        fill=(0, 255, 0)
-    )
+    draw.text((x + pad, y + pad), text, fill=(0, 255, 0))
 
 # =========================================================
 # RENDER
@@ -95,7 +84,7 @@ def render(panel):
     img = Image.open(cfg["image"]).convert("RGBA")
     draw = ImageDraw.Draw(img)
 
-    # ---- valves ----
+    # ---- valves (visual only) ----
     valves = load_json(cfg["valves"])
     for tag, v in valves.items():
         open_ = st.session_state.valve_states.get(tag, False)
@@ -106,23 +95,14 @@ def render(panel):
         )
         draw.text((v["x"] + 10, v["y"] - 10), tag, fill="white")
 
-    # ---- indicators (ALWAYS VISIBLE) ----
-    ind_path = f"data/indicators_{panel}.json"
-    indicators = load_json(ind_path)
-
-    row = None
-    if st.session_state.csv is not None:
-        row = st.session_state.csv.iloc[st.session_state.step]
-
-    for name, ind in indicators.items():
-        value = csv_val(row, ind["source"])
-        label = f"{value:.1f} {ind.get('unit','')}"
+    # ---- GENERIC CALIBRATION INDICATOR ----
+    if st.session_state.calibration:
         draw_indicator(
             draw,
-            ind["x"],
-            ind["y"],
-            label,
-            selected=(name == st.session_state.selected_indicator)
+            st.session_state.cal_x,
+            st.session_state.cal_y,
+            "CAL 0.0",
+            highlight=True
         )
 
     return img
@@ -148,43 +128,33 @@ with st.sidebar:
 
     if st.session_state.csv is not None:
         c1, c2 = st.columns(2)
-        if c1.button("⏮ Previous"):
+        if c1.button("⏮ Previous Step"):
             st.session_state.step = max(0, st.session_state.step - 1)
-        if c2.button("⏭ Next"):
+        if c2.button("⏭ Next Step"):
             st.session_state.step = min(
                 len(st.session_state.csv) - 1,
                 st.session_state.step + 1
             )
 
-# =========================================================
-# CALIBRATION CONTROLS (SAFE TO DELETE LATER)
-# =========================================================
-if st.session_state.calibration:
-    ind_path = f"data/indicators_{st.session_state.panel}.json"
-    indicators = load_json(ind_path)
+    if st.session_state.calibration:
+        st.markdown("---")
+        st.subheader("🧪 Generic Indicator Position")
 
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("🎯 Indicator Calibration")
-
-    if indicators:
-        sel = st.sidebar.selectbox(
-            "Select Indicator",
-            list(indicators.keys())
+        st.session_state.cal_x = st.number_input(
+            "X position",
+            value=st.session_state.cal_x,
+            step=1
         )
-        st.session_state.selected_indicator = sel
-        ind = indicators[sel]
 
-        x = st.sidebar.number_input("X", value=ind["x"], step=1)
-        y = st.sidebar.number_input("Y", value=ind["y"], step=1)
+        st.session_state.cal_y = st.number_input(
+            "Y position",
+            value=st.session_state.cal_y,
+            step=1
+        )
 
-        if st.sidebar.button("💾 Save Position"):
-            indicators[sel]["x"] = int(x)
-            indicators[sel]["y"] = int(y)
-            save_json(ind_path, indicators)
-            st.sidebar.success("Position saved")
-
-    else:
-        st.sidebar.info("No indicators JSON found")
+        st.info(
+            "Use these X/Y values in indicators_<panel>.json later"
+        )
 
 # =========================================================
 # MAIN
