@@ -67,19 +67,25 @@ def save_json(path, data):
         json.dump(data, f, indent=2)
 
 def csv_val(row, key):
+    if row is None:
+        return 0.0
     return float(row[key]) if key in row and pd.notna(row[key]) else 0.0
 
 def draw_indicator(draw, x, y, text, selected=False):
     pad = 4
     w = 8 * len(text)
     h = 16
-    bg = (40, 40, 40) if not selected else (80, 80, 80)
+    bg = (60, 60, 60) if not selected else (100, 100, 100)
 
     draw.rectangle(
         [x, y, x + w + pad * 2, y + h + pad * 2],
         fill=bg
     )
-    draw.text((x + pad, y + pad), text, fill=(0, 255, 0))
+    draw.text(
+        (x + pad, y + pad),
+        text,
+        fill=(0, 255, 0)
+    )
 
 # =========================================================
 # RENDER
@@ -100,26 +106,24 @@ def render(panel):
         )
         draw.text((v["x"] + 10, v["y"] - 10), tag, fill="white")
 
-    # ---- indicators ----
+    # ---- indicators (ALWAYS VISIBLE) ----
     ind_path = f"data/indicators_{panel}.json"
     indicators = load_json(ind_path)
 
+    row = None
     if st.session_state.csv is not None:
         row = st.session_state.csv.iloc[st.session_state.step]
 
-        for name, ind in indicators.items():
-            value = csv_val(row, ind["source"])
-            if value <= 0:
-                continue
-
-            label = f"{value:.1f} {ind.get('unit','')}"
-            draw_indicator(
-                draw,
-                ind["x"],
-                ind["y"],
-                label,
-                selected=(name == st.session_state.selected_indicator),
-            )
+    for name, ind in indicators.items():
+        value = csv_val(row, ind["source"])
+        label = f"{value:.1f} {ind.get('unit','')}"
+        draw_indicator(
+            draw,
+            ind["x"],
+            ind["y"],
+            label,
+            selected=(name == st.session_state.selected_indicator)
+        )
 
     return img
 
@@ -143,11 +147,17 @@ with st.sidebar:
         st.session_state.step = 0
 
     if st.session_state.csv is not None:
-        st.button("⏮ Prev", on_click=lambda: st.session_state.update(step=max(0, st.session_state.step - 1)))
-        st.button("⏭ Next", on_click=lambda: st.session_state.update(step=min(len(st.session_state.csv)-1, st.session_state.step + 1)))
+        c1, c2 = st.columns(2)
+        if c1.button("⏮ Previous"):
+            st.session_state.step = max(0, st.session_state.step - 1)
+        if c2.button("⏭ Next"):
+            st.session_state.step = min(
+                len(st.session_state.csv) - 1,
+                st.session_state.step + 1
+            )
 
 # =========================================================
-# CALIBRATION CONTROLS
+# CALIBRATION CONTROLS (SAFE TO DELETE LATER)
 # =========================================================
 if st.session_state.calibration:
     ind_path = f"data/indicators_{st.session_state.panel}.json"
@@ -162,20 +172,19 @@ if st.session_state.calibration:
             list(indicators.keys())
         )
         st.session_state.selected_indicator = sel
-
         ind = indicators[sel]
 
-        dx = st.sidebar.number_input("X", value=ind["x"], step=1)
-        dy = st.sidebar.number_input("Y", value=ind["y"], step=1)
+        x = st.sidebar.number_input("X", value=ind["x"], step=1)
+        y = st.sidebar.number_input("Y", value=ind["y"], step=1)
 
         if st.sidebar.button("💾 Save Position"):
-            indicators[sel]["x"] = int(dx)
-            indicators[sel]["y"] = int(dy)
+            indicators[sel]["x"] = int(x)
+            indicators[sel]["y"] = int(y)
             save_json(ind_path, indicators)
-            st.sidebar.success("Saved")
+            st.sidebar.success("Position saved")
 
     else:
-        st.sidebar.info("No indicators file found")
+        st.sidebar.info("No indicators JSON found")
 
 # =========================================================
 # MAIN
