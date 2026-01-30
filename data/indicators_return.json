@@ -12,7 +12,7 @@
     "unit": "bar"
   },
   "gas_injection": {
-    "x": 220,
+    "x": 250,
     "y": 543,
     "source": "TST_GasInjectionDemand",
     "unit": "bar"
