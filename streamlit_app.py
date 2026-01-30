@@ -15,7 +15,7 @@ PANELS = {
         "valves": "data/valves_mixing.json",
         "image": "assets/p&id_mixing.png",
     },
-    "supply": {
+    "pressure_in": {
         "name": "Pressure Supply Panel",
         "valves": "data/valves_pressure_in.json",
         "image": "assets/p&id_pressure_in.png",
@@ -25,12 +25,12 @@ PANELS = {
         "valves": "data/valves_dgs.json",
         "image": "assets/p&id_dgs.png",
     },
-    "return": {
+    "pressure_return": {
         "name": "Pressure Return Panel",
         "valves": "data/valves_pressure_return.json",
         "image": "assets/p&id_pressure_return.png",
     },
-    "seal": {
+    "separation_seal": {
         "name": "Separation Seal Panel",
         "valves": "data/valves_separation_seal.json",
         "image": "assets/p&id_separation_seal.png",
@@ -42,14 +42,16 @@ PANELS = {
 # =========================================================
 if "csv" not in st.session_state:
     st.session_state.csv = None
-if "csv_id" not in st.session_state:
-    st.session_state.csv_id = None
 if "step" not in st.session_state:
     st.session_state.step = 0
 if "panel" not in st.session_state:
-    st.session_state.panel = "mixing"
+    st.session_state.panel = "pressure_in"
 if "valve_states" not in st.session_state:
     st.session_state.valve_states = {}
+if "calibration" not in st.session_state:
+    st.session_state.calibration = False
+if "selected_indicator" not in st.session_state:
+    st.session_state.selected_indicator = None
 
 # =========================================================
 # HELPERS
@@ -60,120 +62,35 @@ def load_json(path):
             return json.load(f)
     return {}
 
+def save_json(path, data):
+    with open(path, "w") as f:
+        json.dump(data, f, indent=2)
+
 def csv_val(row, key):
     return float(row[key]) if key in row and pd.notna(row[key]) else 0.0
 
-def is_seal_csv(df):
-    return "TST_SepSealControlTyp" in df.columns
+def draw_indicator(draw, x, y, text, selected=False):
+    pad = 4
+    w = 8 * len(text)
+    h = 16
+    bg = (40, 40, 40) if not selected else (80, 80, 80)
 
-# =========================================================
-# DGS + RETURN LOGIC (FINAL, FIXED)
-# =========================================================
-def apply_dgs_step(row):
-    vs = st.session_state.valve_states
-    vs.clear()
-
-    # -------------------------------
-    # CELL PRESSURE
-    # -------------------------------
-    cell_p = csv_val(row, "TST_CellPresDemand")
-    if cell_p > 0:
-        if cell_p <= 10:
-            vs["V-108"] = True
-        elif cell_p <= 100:
-            vs["V-107"] = True
-        else:
-            vs["V-106"] = True
-        vs["cell"] = True
-
-    # -------------------------------
-    # INTERSPACE PRESSURE (GAS SIDE)
-    # -------------------------------
-    nde_p = csv_val(row, "TST_InterBPDemand_NDE")
-    de_p  = csv_val(row, "TST_InterBPDemand_DE")
-
-    interspace_active = (nde_p > 0) or (de_p > 0)
-    inter_p = max(nde_p, de_p)
-
-    if interspace_active:
-        # EXACTLY ONE pressure source
-        if inter_p <= 7:
-            vs["V-111"] = True          # low
-        elif inter_p <= 100:
-            vs["V-110"] = True          # medium
-        else:
-            vs["V-109"] = True          # high
-
-        # Enable interspaces
-        vs["V-112"] = True              # NDE interspace
-        vs["V-113"] = True              # DE interspace
-        vs["NDE in"] = True
-        vs["DE in"] = True
-
-    # -------------------------------
-    # RETURN PANEL + GAS INJECTION
-    # -------------------------------
-    gas = csv_val(row, "TST_GasInjectionDemand") > 0
-
-    if interspace_active:
-        # Interspace return feed ALWAYS open
-        vs["V-115"] = True              # NDE interspace return
-        vs["V-116"] = True              # DE interspace return
-
-        if gas:
-            # GAS INJECTION MODE
-            vs["V-206"] = True          # NDE gas inject
-            vs["V-207"] = True          # DE gas inject
-        else:
-            # NORMAL RETURN MODE
-            vs["V-204"] = True          # NDE return
-            vs["V-208"] = True          # DE return
-
-# =========================================================
-# SEPARATION SEAL LOGIC (UNCHANGED)
-# =========================================================
-def apply_seal_step(row):
-    vs = st.session_state.valve_states
-    vs.clear()
-
-    flow = max(
-        csv_val(row, "TST_SepSealFlwSet1"),
-        csv_val(row, "TST_SepSealFlwSet2")
+    draw.rectangle(
+        [x, y, x + w + pad * 2, y + h + pad * 2],
+        fill=bg
     )
-
-    pressure = max(
-        csv_val(row, "TST_SepSealPSet1"),
-        csv_val(row, "TST_SepSealPSet2")
-    )
-
-    if pressure > 0:
-        if pressure <= 10:
-            vs["V-108"] = True
-        elif pressure <= 100:
-            vs["V-107"] = True
-        else:
-            vs["V-106"] = True
-
-    if flow > 0 or pressure > 0:
-        vs["V-212"] = True
-        vs["V-213"] = True
-        vs["V-214"] = True
-        vs["V-215"] = True
-
-    if flow > 500:
-        vs["V-216"] = True
-        vs["V-217"] = True
+    draw.text((x + pad, y + pad), text, fill=(0, 255, 0))
 
 # =========================================================
-# RENDER (VALVES ONLY)
+# RENDER
 # =========================================================
 def render(panel):
     cfg = PANELS[panel]
     img = Image.open(cfg["image"]).convert("RGBA")
     draw = ImageDraw.Draw(img)
 
+    # ---- valves ----
     valves = load_json(cfg["valves"])
-
     for tag, v in valves.items():
         open_ = st.session_state.valve_states.get(tag, False)
         draw.ellipse(
@@ -182,6 +99,27 @@ def render(panel):
             outline="white",
         )
         draw.text((v["x"] + 10, v["y"] - 10), tag, fill="white")
+
+    # ---- indicators ----
+    ind_path = f"data/indicators_{panel}.json"
+    indicators = load_json(ind_path)
+
+    if st.session_state.csv is not None:
+        row = st.session_state.csv.iloc[st.session_state.step]
+
+        for name, ind in indicators.items():
+            value = csv_val(row, ind["source"])
+            if value <= 0:
+                continue
+
+            label = f"{value:.1f} {ind.get('unit','')}"
+            draw_indicator(
+                draw,
+                ind["x"],
+                ind["y"],
+                label,
+                selected=(name == st.session_state.selected_indicator),
+            )
 
     return img
 
@@ -194,43 +132,58 @@ with st.sidebar:
     st.session_state.panel = st.selectbox(
         "Select Panel",
         list(PANELS.keys()),
-        format_func=lambda k: PANELS[k]["name"],
+        format_func=lambda k: PANELS[k]["name"]
     )
 
+    st.session_state.calibration = st.toggle("🔧 Indicator Calibration Mode")
+
     uploaded = st.file_uploader("Upload Test CSV", type=["csv"])
-    if uploaded is not None:
-        cid = (uploaded.name, uploaded.size)
-        if cid != st.session_state.csv_id:
-            st.session_state.csv = pd.read_csv(uploaded, sep=";")
-            st.session_state.csv_id = cid
-            st.session_state.step = 0
+    if uploaded:
+        st.session_state.csv = pd.read_csv(uploaded, sep=";")
+        st.session_state.step = 0
 
     if st.session_state.csv is not None:
-        c1, c2 = st.columns(2)
-        if c1.button("⏮ Previous Step"):
-            st.session_state.step = max(0, st.session_state.step - 1)
-            st.rerun()
-        if c2.button("⏭ Next Step"):
-            st.session_state.step = min(
-                len(st.session_state.csv) - 1,
-                st.session_state.step + 1
-            )
-            st.rerun()
+        st.button("⏮ Prev", on_click=lambda: st.session_state.update(step=max(0, st.session_state.step - 1)))
+        st.button("⏭ Next", on_click=lambda: st.session_state.update(step=min(len(st.session_state.csv)-1, st.session_state.step + 1)))
+
+# =========================================================
+# CALIBRATION CONTROLS
+# =========================================================
+if st.session_state.calibration:
+    ind_path = f"data/indicators_{st.session_state.panel}.json"
+    indicators = load_json(ind_path)
+
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("🎯 Indicator Calibration")
+
+    if indicators:
+        sel = st.sidebar.selectbox(
+            "Select Indicator",
+            list(indicators.keys())
+        )
+        st.session_state.selected_indicator = sel
+
+        ind = indicators[sel]
+
+        dx = st.sidebar.number_input("X", value=ind["x"], step=1)
+        dy = st.sidebar.number_input("Y", value=ind["y"], step=1)
+
+        if st.sidebar.button("💾 Save Position"):
+            indicators[sel]["x"] = int(dx)
+            indicators[sel]["y"] = int(dy)
+            save_json(ind_path, indicators)
+            st.sidebar.success("Saved")
+
+    else:
+        st.sidebar.info("No indicators file found")
 
 # =========================================================
 # MAIN
 # =========================================================
-if st.session_state.csv is not None:
-    row = st.session_state.csv.iloc[st.session_state.step]
-    if is_seal_csv(st.session_state.csv):
-        apply_seal_step(row)
-    else:
-        apply_dgs_step(row)
-
 st.title(PANELS[st.session_state.panel]["name"])
 st.image(render(st.session_state.panel), use_container_width=True)
 
 if st.session_state.csv is not None:
     st.markdown("### ⏱ Step Status")
     st.write(f"Step {st.session_state.step + 1} / {len(st.session_state.csv)}")
-    st.write(row)
+    st.write(st.session_state.csv.iloc[st.session_state.step])
