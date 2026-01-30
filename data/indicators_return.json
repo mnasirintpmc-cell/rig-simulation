@@ -1,19 +1,19 @@
 {
   "nde_interspace": {
-    "x": 180,
-    "y": 310,
+    "x": 177,
+    "y": 500,
     "source": "TST_InterBPDemand_NDE",
     "unit": "bar"
   },
   "de_interspace": {
-    "x": 300,
-    "y": 310,
+    "x": 321,
+    "y": 500,
     "source": "TST_InterBPDemand_DE",
     "unit": "bar"
   },
   "gas_injection": {
-    "x": 240,
-    "y": 360,
+    "x": 520,
+    "y": 543,
     "source": "TST_GasInjectionDemand",
     "unit": "bar"
   }
