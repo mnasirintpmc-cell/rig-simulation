@@ -6,8 +6,8 @@
     "unit": "bar"
   },
   "nde_interspace": {
-    "x": 180,
-    "y": 310,
+    "x": 354,
+    "y": 540,
     "source": "TST_InterBPDemand_NDE",
     "unit": "bar"
   },
