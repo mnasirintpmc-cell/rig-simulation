@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import json
@@ -71,7 +70,7 @@ def csv_val(row, key):
     return float(row[key])
 
 # =========================================================
-# BASIC PRESSURE LOGIC (STABLE)
+# FIXED PROCESS LOGIC
 # =========================================================
 def apply_step(row):
     vs = st.session_state.valve_states
@@ -80,8 +79,9 @@ def apply_step(row):
     cell_p = csv_val(row, "TST_CellPresDemand")
     nde_p  = csv_val(row, "TST_InterBPDemand_NDE")
     de_p   = csv_val(row, "TST_InterBPDemand_DE")
+    gas    = csv_val(row, "TST_GasInjectionDemand") > 0
 
-    # ---- Cell pressure ----
+    # ---------------- CELL PRESSURE ----------------
     if cell_p > 0:
         if cell_p <= 7:
             vs["V-108"] = True
@@ -91,9 +91,13 @@ def apply_step(row):
             vs["V-106"] = True
         vs["cell"] = True
 
-    # ---- Interspace pressure ----
+    # ---------------- INTERSPACE PRESSURE ----------------
     inter_p = max(nde_p, de_p)
+    nde_active = nde_p > 0
+    de_active  = de_p > 0
+
     if inter_p > 0:
+        # ONE pressure valve only
         if inter_p <= 7:
             vs["V-111"] = True
         elif inter_p <= 100:
@@ -101,13 +105,31 @@ def apply_step(row):
         else:
             vs["V-109"] = True
 
-        vs["V-112"] = True
-        vs["V-113"] = True
-
-        if nde_p > 0:
+        # Enable interspaces
+        if nde_active:
+            vs["V-112"] = True
             vs["NDE in"] = True
-        if de_p > 0:
+
+        if de_active:
+            vs["V-113"] = True
             vs["DE in"] = True
+
+    # ---------------- RETURN / GAS INJECTION ----------------
+    if gas:
+        # Gas injection mode
+        vs["V-206"] = True
+        vs["V-207"] = True
+        vs["V-115"] = True
+        vs["V-116"] = True
+    else:
+        # Normal return mode
+        if nde_active:
+            vs["V-115"] = True
+            vs["V-204"] = True
+
+        if de_active:
+            vs["V-116"] = True
+            vs["V-208"] = True
 
 # =========================================================
 # RENDER (VALVES + INDICATORS)
@@ -117,7 +139,6 @@ def render(panel):
     img = Image.open(cfg["image"]).convert("RGBA")
     draw = ImageDraw.Draw(img)
 
-    # ---- VALVES ----
     valves = load_json(cfg["valves"])
     for tag, v in valves.items():
         open_ = st.session_state.valve_states.get(tag, False)
@@ -128,7 +149,6 @@ def render(panel):
         )
         draw.text((v["x"] + 10, v["y"] - 10), tag, fill="white")
 
-    # ---- INDICATORS (FROM SESSION STATE) ----
     row = None
     if st.session_state.csv is not None:
         row = st.session_state.csv.iloc[st.session_state.step]
@@ -136,21 +156,18 @@ def render(panel):
     for name, ind in st.session_state.indicators.items():
         value = csv_val(row, ind.get("source", ""))
         text = f"{value:.1f} {ind.get('unit','')}"
-
         x, y = ind["x"], ind["y"]
-        pad = 4
-        w = 8 * len(text)
-        h = 16
+
+        pad = 2
+        w = 7 * len(text)
+        h = 12
 
         bg = (80, 80, 80) if (
             st.session_state.calibration
             and name == st.session_state.selected_indicator
         ) else (30, 30, 30)
 
-        draw.rectangle(
-            [x, y, x + w + pad * 2, y + h + pad * 2],
-            fill=bg
-        )
+        draw.rectangle([x, y, x + w + pad * 2, y + h + pad * 2], fill=bg)
         draw.text((x + pad, y + pad), text, fill=(0, 255, 0))
 
     return img
@@ -161,14 +178,12 @@ def render(panel):
 with st.sidebar:
     st.title("🏭 Rig Control")
 
-    # Panel select
     new_panel = st.selectbox(
         "Panel",
         list(PANELS.keys()),
         format_func=lambda k: PANELS[k]["name"],
     )
 
-    # Reload indicators when panel changes
     if new_panel != st.session_state.panel:
         st.session_state.panel = new_panel
         st.session_state.indicators = load_json(
@@ -195,33 +210,23 @@ with st.sidebar:
             )
             st.rerun()
 
-    # ---- INDICATOR CALIBRATION CONTROLS ----
-    if st.session_state.calibration:
+    if st.session_state.calibration and st.session_state.indicators:
         st.markdown("---")
         st.subheader("🎯 Indicator Calibration")
 
-        if st.session_state.indicators:
-            st.session_state.selected_indicator = st.selectbox(
-                "Select Indicator",
-                list(st.session_state.indicators.keys())
-            )
+        st.session_state.selected_indicator = st.selectbox(
+            "Select Indicator",
+            list(st.session_state.indicators.keys())
+        )
 
-            ind = st.session_state.indicators[
-                st.session_state.selected_indicator
-            ]
+        ind = st.session_state.indicators[
+            st.session_state.selected_indicator
+        ]
 
-            ind["x"] = st.number_input(
-                "X", value=ind["x"], step=1
-            )
-            ind["y"] = st.number_input(
-                "Y", value=ind["y"], step=1
-            )
+        ind["x"] = st.number_input("X", value=ind["x"], step=1)
+        ind["y"] = st.number_input("Y", value=ind["y"], step=1)
 
-            st.success(
-                "Indicator moved live — copy X/Y into JSON when done"
-            )
-        else:
-            st.warning("No indicators JSON found for this panel")
+        st.success("Indicator moved live — copy X/Y into JSON")
 
 # =========================================================
 # MAIN
