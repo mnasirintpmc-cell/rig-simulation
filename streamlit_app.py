@@ -40,16 +40,18 @@ PANELS = {
 # =========================================================
 # SESSION STATE
 # =========================================================
+if "panel" not in st.session_state:
+    st.session_state.panel = "mixing"
 if "csv" not in st.session_state:
     st.session_state.csv = None
 if "step" not in st.session_state:
     st.session_state.step = 0
-if "panel" not in st.session_state:
-    st.session_state.panel = "mixing"
 if "valve_states" not in st.session_state:
     st.session_state.valve_states = {}
 if "calibration" not in st.session_state:
     st.session_state.calibration = False
+if "indicators" not in st.session_state:
+    st.session_state.indicators = {}
 if "selected_indicator" not in st.session_state:
     st.session_state.selected_indicator = None
 
@@ -68,7 +70,7 @@ def csv_val(row, key):
     return float(row[key])
 
 # =========================================================
-# SIMPLE DGS LOGIC (STABLE)
+# BASIC PRESSURE LOGIC (STABLE)
 # =========================================================
 def apply_step(row):
     vs = st.session_state.valve_states
@@ -78,7 +80,7 @@ def apply_step(row):
     nde_p  = csv_val(row, "TST_InterBPDemand_NDE")
     de_p   = csv_val(row, "TST_InterBPDemand_DE")
 
-    # Cell pressure
+    # ---- Cell pressure ----
     if cell_p > 0:
         if cell_p <= 7:
             vs["V-108"] = True
@@ -88,7 +90,7 @@ def apply_step(row):
             vs["V-106"] = True
         vs["cell"] = True
 
-    # Interspace pressure
+    # ---- Interspace pressure ----
     inter_p = max(nde_p, de_p)
     if inter_p > 0:
         if inter_p <= 7:
@@ -114,7 +116,7 @@ def render(panel):
     img = Image.open(cfg["image"]).convert("RGBA")
     draw = ImageDraw.Draw(img)
 
-    # ----- VALVES -----
+    # ---- VALVES ----
     valves = load_json(cfg["valves"])
     for tag, v in valves.items():
         open_ = st.session_state.valve_states.get(tag, False)
@@ -125,20 +127,16 @@ def render(panel):
         )
         draw.text((v["x"] + 10, v["y"] - 10), tag, fill="white")
 
-    # ----- INDICATORS -----
-    ind_path = f"data/indicators_{panel}.json"
-    indicators = load_json(ind_path)
-
+    # ---- INDICATORS (FROM SESSION STATE) ----
     row = None
     if st.session_state.csv is not None:
         row = st.session_state.csv.iloc[st.session_state.step]
 
-    for name, ind in indicators.items():
+    for name, ind in st.session_state.indicators.items():
         value = csv_val(row, ind.get("source", ""))
         text = f"{value:.1f} {ind.get('unit','')}"
 
         x, y = ind["x"], ind["y"]
-
         pad = 4
         w = 8 * len(text)
         h = 16
@@ -150,7 +148,7 @@ def render(panel):
 
         draw.rectangle(
             [x, y, x + w + pad * 2, y + h + pad * 2],
-            fill=bg,
+            fill=bg
         )
         draw.text((x + pad, y + pad), text, fill=(0, 255, 0))
 
@@ -162,11 +160,20 @@ def render(panel):
 with st.sidebar:
     st.title("🏭 Rig Control")
 
-    st.session_state.panel = st.selectbox(
+    # Panel select
+    new_panel = st.selectbox(
         "Panel",
         list(PANELS.keys()),
         format_func=lambda k: PANELS[k]["name"],
     )
+
+    # Reload indicators when panel changes
+    if new_panel != st.session_state.panel:
+        st.session_state.panel = new_panel
+        st.session_state.indicators = load_json(
+            f"data/indicators_{new_panel}.json"
+        )
+        st.session_state.selected_indicator = None
 
     st.session_state.calibration = st.toggle("🎯 Indicator Calibration")
 
@@ -179,6 +186,7 @@ with st.sidebar:
         if st.button("⏮ Previous Step"):
             st.session_state.step = max(0, st.session_state.step - 1)
             st.rerun()
+
         if st.button("⏭ Next Step"):
             st.session_state.step = min(
                 len(st.session_state.csv) - 1,
@@ -186,28 +194,33 @@ with st.sidebar:
             )
             st.rerun()
 
-    # -------- INDICATOR CALIBRATION CONTROLS --------
+    # ---- INDICATOR CALIBRATION CONTROLS ----
     if st.session_state.calibration:
         st.markdown("---")
         st.subheader("🎯 Indicator Calibration")
 
-        ind_path = f"data/indicators_{st.session_state.panel}.json"
-        indicators = load_json(ind_path)
-
-        if indicators:
+        if st.session_state.indicators:
             st.session_state.selected_indicator = st.selectbox(
                 "Select Indicator",
-                list(indicators.keys())
+                list(st.session_state.indicators.keys())
             )
 
-            ind = indicators[st.session_state.selected_indicator]
+            ind = st.session_state.indicators[
+                st.session_state.selected_indicator
+            ]
 
-            ind["x"] = st.number_input("X", value=ind["x"], step=1)
-            ind["y"] = st.number_input("Y", value=ind["y"], step=1)
+            ind["x"] = st.number_input(
+                "X", value=ind["x"], step=1
+            )
+            ind["y"] = st.number_input(
+                "Y", value=ind["y"], step=1
+            )
 
-            st.info("Copy these X/Y values into your JSON file")
+            st.success(
+                "Indicator moved live — copy X/Y into JSON when done"
+            )
         else:
-            st.warning("No indicators JSON found")
+            st.warning("No indicators JSON found for this panel")
 
 # =========================================================
 # MAIN
@@ -220,5 +233,7 @@ st.image(render(st.session_state.panel), use_container_width=True)
 
 if st.session_state.csv is not None:
     st.markdown("### Step Status")
-    st.write(f"Step {st.session_state.step + 1} / {len(st.session_state.csv)}")
+    st.write(
+        f"Step {st.session_state.step + 1} / {len(st.session_state.csv)}"
+    )
     st.write(st.session_state.csv.iloc[st.session_state.step])
