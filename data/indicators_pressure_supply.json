@@ -1,8 +1,20 @@
 {
   "cell_pressure": {
-    "x": 239,
-    "y": 538,
+    "x": 420,
+    "y": 260,
     "source": "TST_CellPresDemand",
+    "unit": "bar"
+  },
+  "nde_interspace": {
+    "x": 180,
+    "y": 310,
+    "source": "TST_InterBPDemand_NDE",
+    "unit": "bar"
+  },
+  "de_interspace": {
+    "x": 300,
+    "y": 310,
+    "source": "TST_InterBPDemand_DE",
     "unit": "bar"
   }
 }
