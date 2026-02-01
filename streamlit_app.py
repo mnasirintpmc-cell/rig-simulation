@@ -38,12 +38,14 @@ PANELS = {
 }
 
 # =========================================================
-# SESSION STATE (MINIMAL & SAFE)
+# SESSION STATE (SAFE)
 # =========================================================
 if "panel" not in st.session_state:
     st.session_state.panel = "mixing"
 if "csv" not in st.session_state:
     st.session_state.csv = None
+if "csv_id" not in st.session_state:
+    st.session_state.csv_id = None
 if "step" not in st.session_state:
     st.session_state.step = 0
 if "valve_states" not in st.session_state:
@@ -66,7 +68,7 @@ def csv_val(row, key):
     return float(row[key])
 
 # =========================================================
-# PROCESS LOGIC (STABLE)
+# PROCESS LOGIC (UNCHANGED)
 # =========================================================
 def apply_step(row):
     vs = st.session_state.valve_states
@@ -77,7 +79,6 @@ def apply_step(row):
     de_p   = csv_val(row, "TST_InterBPDemand_DE")
     gas    = csv_val(row, "TST_GasInjectionDemand") > 0
 
-    # ---- Cell pressure ----
     if cell_p > 0:
         if cell_p <= 7:
             vs["V-108"] = True
@@ -87,7 +88,6 @@ def apply_step(row):
             vs["V-106"] = True
         vs["cell"] = True
 
-    # ---- Interspace pressure ----
     inter_p = max(nde_p, de_p)
     nde_active = nde_p > 0
     de_active  = de_p > 0
@@ -103,12 +103,10 @@ def apply_step(row):
         if nde_active:
             vs["V-112"] = True
             vs["NDE in"] = True
-
         if de_active:
             vs["V-113"] = True
             vs["DE in"] = True
 
-    # ---- Return / Gas Injection ----
     if gas:
         vs["V-206"] = True
         vs["V-207"] = True
@@ -123,14 +121,13 @@ def apply_step(row):
             vs["V-208"] = True
 
 # =========================================================
-# RENDER (VALVES + INDICATORS ONLY)
+# RENDER
 # =========================================================
 def render(panel):
     cfg = PANELS[panel]
     img = Image.open(cfg["image"]).convert("RGBA")
     draw = ImageDraw.Draw(img)
 
-    # ---- Valves ----
     valves = load_json(cfg["valves"])
     for tag, v in valves.items():
         open_ = st.session_state.valve_states.get(tag, False)
@@ -141,7 +138,6 @@ def render(panel):
         )
         draw.text((v["x"] + 10, v["y"] - 10), tag, fill="white")
 
-    # ---- Indicators ----
     row = None
     if st.session_state.csv is not None:
         row = st.session_state.csv.iloc[st.session_state.step]
@@ -164,7 +160,7 @@ def render(panel):
     return img
 
 # =========================================================
-# SIDEBAR
+# SIDEBAR (FIXED)
 # =========================================================
 with st.sidebar:
     st.title("🏭 Rig Control")
@@ -181,10 +177,13 @@ with st.sidebar:
             f"data/indicators_{panel}.json"
         )
 
-    uploaded = st.file_uploader("Upload CSV", type=["csv"])
+    uploaded = st.file_uploader("Upload CSV", type=["csv"], key="csv_uploader")
     if uploaded is not None:
-        st.session_state.csv = pd.read_csv(uploaded, sep=";")
-        st.session_state.step = 0
+        csv_id = (uploaded.name, uploaded.size)
+        if csv_id != st.session_state.csv_id:
+            st.session_state.csv = pd.read_csv(uploaded, sep=";")
+            st.session_state.csv_id = csv_id
+            st.session_state.step = 0
 
     if st.session_state.csv is not None:
         if st.button("⏮ Previous Step"):
@@ -209,7 +208,5 @@ st.image(render(st.session_state.panel), use_container_width=True)
 
 if st.session_state.csv is not None:
     st.markdown("### Step Status")
-    st.write(
-        f"Step {st.session_state.step + 1} / {len(st.session_state.csv)}"
-    )
+    st.write(f"Step {st.session_state.step + 1} / {len(st.session_state.csv)}")
     st.write(st.session_state.csv.iloc[st.session_state.step])
